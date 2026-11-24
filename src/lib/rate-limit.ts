@@ -1,16 +1,11 @@
 import type { RequestHandler } from 'express';
 
 export interface RateLimitOptions {
-  /** Requests allowed per window, per client IP. */
   max: number;
   windowMs: number;
   now?: () => number;
 }
 
-/**
- * Minimal fixed-window, in-memory rate limiter. Enough for a single-process deployment; with several
- * instances this would move to a shared store (e.g. Redis) or the reverse proxy.
- */
 export function rateLimit({ max, windowMs, now = Date.now }: RateLimitOptions): RequestHandler {
   const windows = new Map<string, { start: number; count: number }>();
 

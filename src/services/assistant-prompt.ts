@@ -1,13 +1,7 @@
-/**
- * System prompt for the HR assistant: context, not data. It tells the model what exists
- * (countries, currencies, FX snapshot, departments, titles, levels) so it can pick the right
- * tool arguments, but never contains employee rows or pay figures. Those only come from tools.
- */
 import type { DB } from '../db/connection';
 import { LEVEL_LABELS, LEVELS } from '../db/reference-data';
 import { createReferenceRepository } from '../repositories/reference-repository';
 
-/** Budget from the free-tier constraints: ~1,500 tokens. 4 characters per token is a conservative estimate for English. */
 export const SYSTEM_PROMPT_MAX_CHARS = 6_000;
 
 export function buildSystemPrompt(db: DB, today: Date = new Date()): string {

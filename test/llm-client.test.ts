@@ -3,7 +3,6 @@ import { createOpenAiCompatibleClient, httpStatusOf, LLM_DEFAULTS, llmConfigFrom
 
 const CONFIG = { apiKey: 'test-key', baseUrl: 'https://llm.example/v1', model: 'test-model' };
 
-/** A fetch that answers like an OpenAI-compatible server streaming SSE chunks. */
 function sseFetch(chunks: unknown[], seen: { url?: string; body?: Record<string, unknown>; auth?: string }) {
   return (async (url: string | URL | Request, init?: RequestInit) => {
     seen.url = String(url);

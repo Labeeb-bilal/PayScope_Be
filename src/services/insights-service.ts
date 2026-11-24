@@ -8,17 +8,10 @@ import { createReferenceRepository } from '../repositories/reference-repository'
 const round = (n: number) => Math.round(n);
 const QUARTILES = [0.25, 0.5, 0.75] as const;
 
-/** SummaryStats from SQL aggregates + indexed percentile lookups, rounded for display. */
 function stats(agg: GroupAggregate, [p25, median, p75]: number[]): SummaryStats {
   return { count: agg.count, min: agg.min, p25: round(p25!), median: round(median!), p75: round(p75!), max: agg.max, mean: round(agg.mean), total: agg.total };
 }
 
-/**
- * Answers "how does the org pay people?". Totals, counts and averages come from SQL GROUP BY;
- * percentiles from indexed lookups; pay-equity flags from one SQL statement. Node never loads the
- * employee table. Cross-country figures use the stored USD value (employees.salary_usd);
- * per-country figures stay in local currency.
- */
 export function createInsightsService(db: DB) {
   const repo = createInsightsRepository(db);
   const reference = createReferenceRepository(db);
@@ -63,7 +56,7 @@ export function createInsightsService(db: DB) {
 
     byDepartment() {
       const groups = repo.aggregates('department', 'usd');
-      const grandTotal = groups.reduce((sum, g) => sum + g.total, 0); // one number per department
+      const grandTotal = groups.reduce((sum, g) => sum + g.total, 0);
       return groups
         .map((g) => ({
           department: g.key,
@@ -85,7 +78,6 @@ export function createInsightsService(db: DB) {
       });
     },
 
-    /** Salary distribution: in local currency when one country is selected, otherwise USD. */
     distribution(country?: string) {
       const measure = country ? 'local' : 'usd';
       const filters = country ? { country } : {};
@@ -94,7 +86,6 @@ export function createInsightsService(db: DB) {
         if (country) throw new NotFoundError('Employees for country');
         return { currency: 'USD', buckets: [] };
       }
-      // Size buckets on P99 so a few outliers don't squash the chart; the last bucket is open-ended.
       const [p99] = repo.percentiles('all', measure, '', all.count, [0.99], filters);
       const step = niceStep(p99! / 15);
       const bucketCount = Math.min(16, Math.floor(all.max / step) + 1);
@@ -109,7 +100,6 @@ export function createInsightsService(db: DB) {
       };
     },
 
-    /** "What do we pay a <title> (at <level>) (in <country>)?" Stats per country × level in local currency. */
     benchmark(q: { jobTitle: string; level?: string; country?: string }) {
       const filters = { jobTitle: q.jobTitle, level: q.level, country: q.country };
       const countries = countriesByCode();
@@ -131,10 +121,6 @@ export function createInsightsService(db: DB) {
       return { jobTitle: q.jobTitle, headcount: groups.reduce((sum, g) => sum + g.count, 0), items };
     },
 
-    /**
-     * Flags people paid below `threshold` × the median of their peer group
-     * (same job title, level and country). Small peer groups are skipped: a median of 2 people isn't a benchmark.
-     */
     payEquity(q: { threshold: number; minPeers: number; limit: number; country?: string; department?: string }) {
       const result = repo.payEquity(q);
       return {

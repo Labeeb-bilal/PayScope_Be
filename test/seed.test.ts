@@ -90,7 +90,7 @@ describe('seedDatabase', () => {
   it('inserts employees with a salary history and is re-runnable', () => {
     const db = openDb();
     seedDatabase(db, 300);
-    seedDatabase(db, 300); // second run replaces, does not duplicate
+    seedDatabase(db, 300);
     const { n } = db.prepare('SELECT COUNT(*) AS n FROM employees').get() as { n: number };
     expect(n).toBe(300);
 
@@ -99,7 +99,6 @@ describe('seedDatabase', () => {
       .get() as { n: number };
     expect(withoutHistory.n).toBe(0);
 
-    // latest history entry always matches the current salary
     const mismatched = db
       .prepare(`SELECT COUNT(*) AS n FROM employees e
                 WHERE e.salary != (SELECT new_salary FROM salary_changes s WHERE s.employee_id = e.id

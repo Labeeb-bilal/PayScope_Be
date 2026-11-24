@@ -90,7 +90,7 @@ export function createEmployeeService(db: DB) {
         if (relocating) {
           employees.insertSalaryChange({
             employeeId: id,
-            previousSalary: null, // different currency: a numeric "previous" would be misleading
+            previousSalary: null,
             newSalary: salary!,
             currency: newCountry!.currency,
             effectiveDate: new Date().toISOString().slice(0, 10),

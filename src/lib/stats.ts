@@ -1,9 +1,3 @@
-/**
- * Pure statistics helpers. The insights themselves are computed in SQLite (see
- * repositories/insights-repository.ts); these in-memory versions define the expected maths
- * (e.g. PERCENTILE.INC interpolation) and are the oracle the SQL implementation is tested against.
- */
-
 export interface SummaryStats {
   count: number;
   min: number;
@@ -15,7 +9,6 @@ export interface SummaryStats {
   total: number;
 }
 
-/** Linear-interpolated percentile (same method as Excel PERCENTILE.INC). Input must be sorted ascending. */
 export function percentileSorted(sorted: readonly number[], p: number): number {
   if (sorted.length === 0) throw new Error('percentile of empty list');
   if (p < 0 || p > 1) throw new Error('p must be within [0, 1]');
@@ -37,7 +30,6 @@ export interface HistogramBucket {
   count: number;
 }
 
-/** Fixed-width histogram starting at 0. The last bucket is open-ended (≥ from) so outliers don't stretch the chart. */
 export function histogram(values: readonly number[], bucketSize: number, maxBuckets = 20): HistogramBucket[] {
   if (bucketSize <= 0) throw new Error('bucketSize must be positive');
   if (values.length === 0) return [];
@@ -56,7 +48,6 @@ export function histogram(values: readonly number[], bucketSize: number, maxBuck
   return buckets;
 }
 
-/** Rounds a raw step up to a "nice" number (1, 2, 2.5 or 5 × 10^n) so chart buckets read well. */
 export function niceStep(raw: number): number {
   if (raw <= 0) return 1;
   const magnitude = 10 ** Math.floor(Math.log10(raw));

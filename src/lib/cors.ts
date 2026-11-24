@@ -1,17 +1,8 @@
 import cors from 'cors';
 import type { RequestHandler } from 'express';
 
-/** Browser origins allowed to call the API cross-origin, or '*' for any. */
 export type CorsOrigins = string[] | '*';
 
-/**
- * CORS_ORIGIN, set per environment (.env.development for dev, host settings or .env.production for prod):
- * comma-separated origins (scheme + host + optional port, no path), e.g.
- * "https://payscope.vercel.app,https://staging.example.com", or "*" to allow any site.
- * Unset: no cross-origin access at all (only same-origin, i.e. the UI served by this API). There is
- * deliberately no hard-coded default, so what is allowed is always visible in the environment.
- * Invalid values throw at startup, because a wrong origin otherwise fails silently in the browser.
- */
 export function parseCorsOrigins(env: NodeJS.ProcessEnv = process.env): CorsOrigins {
   const raw = env.CORS_ORIGIN?.trim();
   if (!raw) return [];
@@ -34,7 +25,6 @@ export function parseCorsOrigins(env: NodeJS.ProcessEnv = process.env): CorsOrig
     });
 }
 
-/** CORS middleware that only answers listed origins; other sites get no CORS headers, so browsers block them. */
 export function corsMiddleware(origins: CorsOrigins): RequestHandler {
   return cors({ origin: origins === '*' ? '*' : origins, maxAge: 600 });
 }

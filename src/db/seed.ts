@@ -1,7 +1,6 @@
 import { salaryUsdSql, withoutSearchTriggers, type DB } from './connection';
 import { COUNTRIES, DEPARTMENTS, LEVELS, type Level } from './reference-data';
 
-/** Small, fast, deterministic PRNG (mulberry32). Same seed → same data everywhere. */
 export function createRng(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -27,10 +26,6 @@ function weighted<T>(rng: () => number, entries: readonly (readonly [T, number])
   return entries[entries.length - 1]![0];
 }
 
-/**
- * Name pools per culture, so a seeded person gets a first name and surname that belong together
- * (no "Kenji Patel"). Names are plain ASCII where the culture allows it; emails are ASCII-folded anyway.
- */
 interface NamePool {
   first: readonly string[];
   last: readonly string[];
@@ -126,13 +121,11 @@ const SINGAPOREAN: NamePool = {
   ],
 };
 
-/** Which naming culture each country's employees are drawn from. */
 export const NAMES_BY_COUNTRY: Record<string, NamePool> = {
   US: ENGLISH, GB: ENGLISH, CA: ENGLISH, AU: ENGLISH,
   IN: INDIAN, DE: GERMAN, JP: JAPANESE, BR: BRAZILIAN, AE: ARABIC, SG: SINGAPOREAN,
 };
 
-/** "Wei Ming" + "Tan" + 42 -> "wei.ming.tan.42": lowercase ASCII letters/digits separated by dots. */
 function emailLocalPart(firstName: string, lastName: string, n: number): string {
   return `${firstName} ${lastName} ${n}`
     .normalize('NFD')
@@ -143,7 +136,6 @@ function emailLocalPart(firstName: string, lastName: string, n: number): string 
     .join('.');
 }
 
-/** Headcount weight and pay level relative to the US market. */
 const COUNTRY_PROFILE: Record<string, { weight: number; marketFactor: number }> = {
   US: { weight: 25, marketFactor: 1.0 },
   IN: { weight: 25, marketFactor: 0.22 },
@@ -164,7 +156,6 @@ const DEPARTMENT_WEIGHTS: Record<string, number> = {
 const LEVEL_WEIGHTS: Record<Level, number> = { L1: 30, L2: 30, L3: 22, L4: 12, L5: 6 };
 const LEVEL_MULTIPLIER: Record<Level, number> = { L1: 1, L2: 1.3, L3: 1.65, L4: 2.05, L5: 2.6 };
 
-/** Share of employees deliberately paid well below peers, so pay-equity flags have something real to find. */
 const UNDERPAID_SHARE = 0.03;
 
 export interface SeedEmployee {
@@ -179,12 +170,10 @@ export interface SeedEmployee {
   currency: string;
   salary: number;
   hireDate: string;
-  /** Salary before the most recent raise, if any (for seeded history). */
   previousSalary: number | null;
   lastRaiseDate: string | null;
 }
 
-/** Rounds to a "human" number in the local currency: 100 for USD-like, 1,000 for INR, 10,000 for JPY. */
 export function roundSalary(amount: number, usdRate: number): number {
   const unit = 100 * Math.max(1, 10 ** Math.floor(Math.log10(usdRate)));
   return Math.max(unit, Math.round(amount / unit) * unit);
@@ -194,7 +183,6 @@ function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** Pure generator: no DB access, fully deterministic for a given (count, seed). */
 export function generateEmployees(count: number, seed = 42): SeedEmployee[] {
   const rng = createRng(seed);
   const countryEntries = COUNTRIES.map((c) => [c, COUNTRY_PROFILE[c.code]!.weight] as const);
@@ -215,7 +203,7 @@ export function generateEmployees(count: number, seed = 42): SeedEmployee[] {
     const lastName = pick(rng, names.last);
 
     const usdBase = titles[jobTitle]! * LEVEL_MULTIPLIER[level] * COUNTRY_PROFILE[country.code]!.marketFactor;
-    const noise = 0.85 + rng() * 0.3; // ±15% spread within a peer group
+    const noise = 0.85 + rng() * 0.3;
     const underpaid = rng() < UNDERPAID_SHARE ? 0.65 : 1;
     const salary = roundSalary(usdBase * noise * underpaid * country.usdRate, country.usdRate);
 
@@ -243,7 +231,6 @@ export function generateEmployees(count: number, seed = 42): SeedEmployee[] {
   return employees;
 }
 
-/** Wipes employee data and inserts a deterministic dataset in one transaction. */
 export function seedDatabase(db: DB, count = 10_000, seed = 42): number {
   const employees = generateEmployees(count, seed);
   const insertEmployee = db.prepare(`

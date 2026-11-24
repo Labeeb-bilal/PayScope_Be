@@ -1,11 +1,3 @@
-/**
- * Shared harness for scripts/explain.ts and scripts/bench.ts.
- *
- * Each case calls the real repository/service code. While it runs, db.prepare is wrapped so we
- * record every SQL statement it executes plus its bound parameters. explain.ts runs EXPLAIN QUERY PLAN
- * on exactly those statements; bench.ts times them. Plans and timings therefore always match
- * whatever SQL the app currently generates, before and after an optimisation.
- */
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -49,19 +41,15 @@ export const CASES: QueryCase[] = [
     run: (db) => createEmployeeRepository(db).salaryHistory(5_000),
   },
   {
-    // Not in the original list: added because it is the directory's default view and the only
-    // query that uses idx_employees_name, so it is needed to judge whether that index can be dropped.
     name: '6. Default directory page (sorted by name)',
     run: (db) => createEmployeeRepository(db).list(listQuerySchema.parse({})),
   },
 ];
 
-/** Opens a fresh file-backed DB in a temp dir (WAL, like production) seeded with 10k employees. */
 export function openSeededTempDb(): { db: DB; cleanup: () => void } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'salary-perf-'));
   const db = openDb(path.join(dir, 'perf.db'));
   seedDatabase(db, EMPLOYEE_COUNT);
-  // No ANALYZE: the app never runs it, so the planner here sees the same (absent) statistics as production.
   return {
     db,
     cleanup: () => {
@@ -73,7 +61,6 @@ export function openSeededTempDb(): { db: DB; cleanup: () => void } {
 
 const EXECUTING_METHODS = new Set(['all', 'get', 'run', 'iterate']);
 
-/** Runs `fn` and returns every statement it executed, in order. */
 export function captureStatements(db: DB, fn: () => unknown): CapturedStatement[] {
   const captured: CapturedStatement[] = [];
   const originalPrepare = db.prepare;
@@ -95,7 +82,6 @@ export function captureStatements(db: DB, fn: () => unknown): CapturedStatement[
   }) as DB['prepare'];
   try {
     const result = fn();
-    // Drain iterators so lazily executed statements are captured too.
     if (result && typeof result === 'object' && Symbol.iterator in result && !Array.isArray(result)) {
       for (const _ of result as Iterable<unknown>) void _;
     }
@@ -105,7 +91,6 @@ export function captureStatements(db: DB, fn: () => unknown): CapturedStatement[
   return captured;
 }
 
-/** Collapses whitespace so SQL prints on one readable line. */
 export function oneLine(sql: string): string {
   return sql.replace(/\s+/g, ' ').trim();
 }

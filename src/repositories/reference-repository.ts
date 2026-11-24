@@ -17,7 +17,6 @@ export function createReferenceRepository(db: DB) {
         | CountryRow
         | undefined;
     },
-    /** Departments and titles currently in use, so filters reflect real data. */
     jobCatalog(): { department: string; jobTitle: string; headcount: number }[] {
       return db
         .prepare(`SELECT department, job_title AS jobTitle, COUNT(*) AS headcount

@@ -1,8 +1,3 @@
-/**
- * Times every insights call (median of 30 runs after 5 warm-ups) at 10k and 100k employees.
- * "Insights page" = the six calls the Pay insights page makes on load.
- * Usage: npm run bench:insights
- */
 import os from 'node:os';
 import { performance } from 'node:perf_hooks';
 import { openDb } from '../src/db/connection';

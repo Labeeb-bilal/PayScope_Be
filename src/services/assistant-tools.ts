@@ -1,11 +1,3 @@
-/**
- * Read-only tools the HR assistant's model can call. Each one is a thin wrapper over an existing
- * service (no SQL here), validates its arguments with zod and returns compact JSON. Results are
- * capped (max 20 rows, only the fields an answer needs) to stay inside free-tier token limits.
- *
- * Inputs are forgiving where it is unambiguous: "UAE" -> "AE", "Senior" -> "L3", "sales" -> "Sales".
- * Anything that can't be mapped returns an error listing the valid values, so the model can retry.
- */
 import { z } from 'zod';
 import type { DB } from '../db/connection';
 import { COUNTRIES, LEVEL_LABELS, LEVELS, type Level } from '../db/reference-data';
@@ -17,8 +9,6 @@ import { createEmployeeService } from './employee-service';
 import { createInsightsService } from './insights-service';
 
 export const MAX_TOOL_ROWS = 20;
-
-// ── Normalisers ─────────────────────────────────────────────────────────────────────────────────
 
 const COUNTRY_ALIASES: Record<string, string> = {
   uae: 'AE', emirates: 'AE', uk: 'GB', britain: 'GB', 'great britain': 'GB', england: 'GB',
@@ -42,7 +32,6 @@ function matchIgnoringCase(input: string, options: readonly string[]): string | 
   return options.find((o) => o.toLowerCase() === key);
 }
 
-/** Valid departments and titles come from the data, so filters match what actually exists. */
 interface Catalog {
   departments: string[];
   jobTitles: string[];
@@ -63,8 +52,6 @@ function mapped(normalize: (v: string) => string | undefined, describeValid: () 
     return result;
   });
 }
-
-// ── Schemas ─────────────────────────────────────────────────────────────────────────────────────
 
 function schemas(catalog: Catalog) {
   const country = mapped(normalizeCountry, () => `Use a country code: ${COUNTRIES.map((c) => c.code).join(', ')}.`).describe(
@@ -128,8 +115,6 @@ const DESCRIPTIONS: Record<ToolName, string> = {
   pay_by_department: 'Headcount and pay per department in USD, with share of total payroll.',
   pay_by_level: 'Headcount and USD pay (P25/median/P75) per level L1-L5.',
 };
-
-// ── Handlers (compact results) ──────────────────────────────────────────────────────────────────
 
 type Args<N extends ToolName> = z.output<Schemas[N]>;
 
@@ -230,14 +215,10 @@ function handlers(db: DB) {
   } satisfies { [N in ToolName]: (args: Args<N>) => unknown };
 }
 
-// ── Public API ──────────────────────────────────────────────────────────────────────────────────
-
 export interface ToolOutcome {
   name: string;
-  /** Validated (normalised) arguments, or the raw ones when validation failed. */
   args: Record<string, unknown>;
   ok: boolean;
-  /** Compact JSON sent back to the model. */
   content: string;
 }
 
@@ -245,7 +226,6 @@ function readableIssues(error: z.ZodError): string {
   return error.issues.map((i) => (i.path.length ? `${i.path.join('.')}: ${i.message}` : i.message)).join('; ');
 }
 
-/** Tool specs in the OpenAI function-calling format. Built once; descriptions kept short to save tokens. */
 export const TOOL_SPECS: ToolSpec[] = (Object.entries(schemas({ departments: [], jobTitles: [] })) as [ToolName, z.ZodType][]).map(
   ([name, schema]) => {
     const { $schema: _s, ...parameters } = z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }) as Record<string, unknown>;
@@ -259,7 +239,6 @@ export function createAssistantTools(db: DB) {
   return {
     specs: TOOL_SPECS,
 
-    /** Never throws: every failure becomes an error message the model can read and recover from. */
     execute(name: string, rawArguments: string): ToolOutcome {
       const fail = (args: Record<string, unknown>, error: string): ToolOutcome => ({
         name, args, ok: false, content: JSON.stringify({ error }),

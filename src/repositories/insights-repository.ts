@@ -1,15 +1,3 @@
-/**
- * Aggregate queries for pay insights. SQLite does the counting, summing, grouping, filtering and
- * ordering; only small results reach Node. USD figures use the stored employees.salary_usd column:
- * no join to countries and no division per row.
- *
- * Percentiles: SQLite has no MEDIAN/PERCENTILE function, and window functions (ROW_NUMBER OVER ...)
- * measured slower than sorting in JS. Instead every percentile is read from an index that is already
- * sorted by (group, value): `ORDER BY value LIMIT 1 OFFSET k` walks the index and returns one number,
- * with no sort. Group sizes come from the GROUP BY query. See docs/05-performance.md.
- *
- * SQL fragments built here (column names) come from this file only; user values are always bound.
- */
 import type { DB } from '../db/connection';
 import type Database from 'better-sqlite3';
 
@@ -20,7 +8,6 @@ export interface Filters {
   level?: string;
 }
 
-/** A grouping and the columns its percentiles are read in (each pair is backed by an index). */
 type Grouping = 'all' | 'country' | 'department' | 'level' | 'benchmark';
 type Measure = 'local' | 'usd';
 
@@ -29,7 +16,6 @@ const GROUP_COLUMNS: Record<Grouping, string[]> = {
   country: ['country_code'],
   department: ['department'],
   level: ['level'],
-  // Benchmark rows are always filtered by job_title; groups are country × level.
   benchmark: ['country_code', 'level'],
 };
 
@@ -40,11 +26,6 @@ const FILTER_COLUMNS: Record<keyof Filters, string> = {
   level: 'level',
 };
 
-/**
- * Value column for a measure, and the column to ORDER BY so an index can serve it.
- * Within one country every salary has the same currency, so ordering by `salary` also orders
- * `salary_usd`; that lets (country_code, salary) and the peer index serve USD percentiles too.
- */
 function columns(grouping: Grouping, measure: Measure): { value: string; order: string } {
   if (measure === 'local') return { value: 'salary', order: 'salary' };
   const singleCurrency = GROUP_COLUMNS[grouping].includes('country_code');
@@ -52,7 +33,6 @@ function columns(grouping: Grouping, measure: Measure): { value: string; order: 
 }
 
 export interface GroupAggregate {
-  /** Group values joined with "|", e.g. "IN" or "AE|L3"; "" for the whole table. */
   key: string;
   count: number;
   min: number;
@@ -78,7 +58,6 @@ export interface PeerFlag {
 }
 
 export function createInsightsRepository(db: DB) {
-  // Statements are prepared once per SQL text: percentile lookups run many tiny queries.
   const cache = new Map<string, Database.Statement>();
   const stmt = (sql: string) => {
     let s = cache.get(sql);
@@ -98,7 +77,6 @@ export function createInsightsRepository(db: DB) {
     return { sql: clauses.length ? `WHERE ${clauses.join(' AND ')}` : '', params };
   }
 
-  /** Value at 0-based position `offset` of the group's sorted values: one indexed lookup. */
   function valueAt(grouping: Grouping, measure: Measure, groupValues: string[], offset: number, filters: Filters): number {
     const cols = GROUP_COLUMNS[grouping];
     const { value, order } = columns(grouping, measure);
@@ -110,7 +88,6 @@ export function createInsightsRepository(db: DB) {
   }
 
   return {
-    /** COUNT / MIN / MAX / SUM / AVG per group, computed by SQLite. */
     aggregates(grouping: Grouping, measure: Measure, filters: Filters = {}): GroupAggregate[] {
       const cols = GROUP_COLUMNS[grouping];
       const { value } = columns(grouping, measure);
@@ -123,10 +100,6 @@ export function createInsightsRepository(db: DB) {
       ).all(params) as GroupAggregate[];
     },
 
-    /**
-     * Linear-interpolated percentiles (Excel PERCENTILE.INC, same as lib/stats percentileSorted) of one
-     * group of `count` rows. Each percentile needs one or two indexed lookups.
-     */
     percentiles(grouping: Grouping, measure: Measure, groupKey: string, count: number, ps: readonly number[], filters: Filters = {}): number[] {
       const groupValues = GROUP_COLUMNS[grouping].length ? groupKey.split('|') : [];
       return ps.map((p) => {
@@ -139,7 +112,6 @@ export function createInsightsRepository(db: DB) {
       });
     },
 
-    /** Distinct countries and departments with at least one employee. */
     distinctCounts(): { countries: number; departments: number } {
       return stmt('SELECT COUNT(DISTINCT country_code) AS countries, COUNT(DISTINCT department) AS departments FROM employees').get() as {
         countries: number;
@@ -147,10 +119,6 @@ export function createInsightsRepository(db: DB) {
       };
     },
 
-    /**
-     * Histogram counts per bucket via GROUP BY. Bucket i covers [i*step, (i+1)*step); values at or above
-     * the last bucket's start are counted in the last bucket (open-ended).
-     */
     histogram(measure: Measure, step: number, bucketCount: number, filters: Filters = {}): Map<number, number> {
       const value = measure === 'usd' ? 'salary_usd' : 'salary';
       const { sql, params } = filterSql(filters);
@@ -163,15 +131,6 @@ export function createInsightsRepository(db: DB) {
       return new Map(rows);
     },
 
-    /**
-     * Employees paid below `threshold` × their peer median (same title, level, country), lowest ratio first.
-     *
-     * 1. Peer medians: SQLite streams (title, level, country, salary) from the covering index
-     *    idx_employees_peer_salary, already sorted, so each group's median is just its middle value(s).
-     * 2. Everything else is one SQL statement: the medians are passed as JSON, each group's underpaid
-     *    people are found with an index range search (salary < threshold × median), and SQLite orders
-     *    them and computes the totals. The USD gap is only computed for flagged rows.
-     */
     payEquity(q: { threshold: number; minPeers: number; limit: number; country?: string; department?: string }): {
       totalFlagged: number;
       totalGapUsd: number;

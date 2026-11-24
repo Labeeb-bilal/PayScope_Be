@@ -1,9 +1,3 @@
-/**
- * Reference data shared by the schema bootstrap and the seed generator.
- *
- * usdRate = units of local currency per 1 USD. It is a fixed snapshot used only
- * for cross-country comparison. Contract salaries are always stored in local currency.
- */
 export interface CountryRef {
   code: string;
   name: string;
@@ -35,7 +29,6 @@ export const LEVEL_LABELS: Record<Level, string> = {
   L5: 'Principal',
 };
 
-/** Job titles per department with an L1 base salary in USD (US market). */
 export const DEPARTMENTS: Readonly<Record<string, Readonly<Record<string, number>>>> = {
   Engineering: { 'Software Engineer': 95_000, 'QA Engineer': 75_000, 'DevOps Engineer': 95_000, 'Data Engineer': 95_000 },
   Product: { 'Product Manager': 100_000, 'Product Designer': 85_000 },

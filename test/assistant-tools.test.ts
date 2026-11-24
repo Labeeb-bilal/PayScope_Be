@@ -4,11 +4,9 @@ import { createAssistantTools, MAX_TOOL_ROWS, normalizeCountry, normalizeLevel, 
 import { createInsightsService } from '../src/services/insights-service';
 import { employeeInput, setup } from './helpers';
 
-/** Small dataset where the answers are checkable by hand. */
 function dataset() {
   const ctx = setup();
   const add = (o: Parameters<typeof employeeInput>[0]) => ctx.service.create(employeeInput(o));
-  // 6 Data Engineers L3 in AE, so pay-equity has a real peer group (minPeers = 5).
   const ae = [400_000, 420_000, 440_000, 460_000, 480_000, 250_000].map((salary, i) =>
     add({ firstName: `Omar${i}`, lastName: 'Haddad', jobTitle: 'Data Engineer', level: 'L3', countryCode: 'AE', salary, department: 'Engineering' }),
   );
@@ -43,7 +41,7 @@ describe('assistant tools return the same numbers as the services', () => {
     expect(data.items).toHaveLength(1);
     const { id: _id, ...item } = expected.items[0]!;
     expect(data.items[0]).toEqual(item);
-    expect(data.items[0].employeeCode).toBe(ae[5]!.employeeCode); // the 250k outlier
+    expect(data.items[0].employeeCode).toBe(ae[5]!.employeeCode);
   });
 
   it('search_employees', () => {
@@ -125,7 +123,7 @@ describe('assistant tool input handling', () => {
     expect(JSON.parse(tools.execute('delete_employee', '{}').content).error).toMatch(/Unknown tool "delete_employee". Available tools: .*pay_benchmark/);
     expect(JSON.parse(tools.execute('org_summary', '{not json').content).error).toMatch(/JSON object/);
     expect(JSON.parse(tools.execute('get_employee', '{"employeeCode":"ACME-99999"}').content).error).toMatch(/not found/i);
-    expect(tools.execute('org_summary', '').ok).toBe(true); // empty arguments mean {}
+    expect(tools.execute('org_summary', '').ok).toBe(true);
   });
 
   it('exposes only read-only tools with valid JSON schemas', () => {

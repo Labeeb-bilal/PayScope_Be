@@ -16,7 +16,6 @@ function storedUsd(db: DB, id: number): number {
   return (db.prepare('SELECT salary_usd AS v FROM employees WHERE id = ?').get(id) as { v: number }).v;
 }
 
-/** Rows where the cache disagrees with salary / current rate. Should always be 0. */
 function staleRows(db: DB): number {
   return (
     db
@@ -83,14 +82,14 @@ describe('salary_usd cache', () => {
     expect(recomputeSalaryUsd(db, 'IN')).toBe(1);
     expect(storedUsd(db, inEmp.id)).toBe(25_000);
     expect(storedUsd(db, usEmp.id)).toBe(100_000);
-    expect(recomputeSalaryUsd(db)).toBe(0); // nothing left to change
+    expect(recomputeSalaryUsd(db)).toBe(0);
   });
 
   it('openDb recomputes, so reference-data rate changes reach existing rows', () => {
     const file = tempDbPath();
     const db = openDb(file);
     seedDatabase(db, 50);
-    db.prepare('UPDATE employees SET salary_usd = 1').run(); // as if computed with an old rate
+    db.prepare('UPDATE employees SET salary_usd = 1').run();
     db.close();
 
     const reopened = openDb(file);
@@ -102,7 +101,6 @@ describe('salary_usd cache', () => {
     const { db, service } = setup();
     const a = service.create(employeeInput({ firstName: 'A', countryCode: 'US', salary: 50_000 }));
     service.create(employeeInput({ firstName: 'B', countryCode: 'US', salary: 60_000 }));
-    // Make the cache say A earns most: the sort must follow salary_usd, proving the column (and its index) is used.
     db.prepare('UPDATE employees SET salary_usd = 999999 WHERE id = ?').run(a.id);
     const names = service.list(listQuerySchema.parse({ sort: 'salaryUsd', order: 'desc' })).items.map((e) => e.firstName);
     expect(names).toEqual(['A', 'B']);
@@ -148,17 +146,14 @@ describe('migration from a pre-salary_usd, pre-FTS database file', () => {
     expect(indexes).toContain('idx_employees_salary_usd');
     expect(indexes).toContain('idx_employees_name');
     expect(indexes).not.toContain('idx_employees_first_name');
-    // Narrow indexes replaced by (group, value) ones used for insights percentiles.
     expect(indexes).not.toContain('idx_employees_department');
     expect(indexes).not.toContain('idx_employees_peer');
     expect(indexes).toEqual(expect.arrayContaining(['idx_employees_department_usd', 'idx_employees_level_usd', 'idx_employees_peer_salary']));
-    // The full-text index is backfilled from the existing rows.
     const service = createEmployeeService(db);
     expect(service.list(listQuerySchema.parse({ search: 'old timer' })).items.map((e) => e.employeeCode)).toEqual(['ACME-00001']);
     expect(service.list(listQuerySchema.parse({ search: 'also@acme' })).total).toBe(1);
     db.close();
 
-    // Re-opening an already migrated file is a no-op.
     const again = openDb(file);
     expect(staleRows(again)).toBe(0);
     again.close();

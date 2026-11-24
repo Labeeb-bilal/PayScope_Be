@@ -5,11 +5,6 @@ import { groupBy, histogram, percentileSorted } from '../src/lib/stats';
 import { createInsightsRepository } from '../src/repositories/insights-repository';
 import { createInsightsService } from '../src/services/insights-service';
 
-/**
- * The SQL implementation is checked against a plain in-memory oracle on a realistic seeded dataset:
- * read every row once, then group/sort/sum in TypeScript the obvious way. Any off-by-one in an
- * OFFSET or a wrong GROUP BY shows up as a mismatch.
- */
 const db = openDb();
 seedDatabase(db, 1_500);
 const repo = createInsightsRepository(db);

@@ -1,7 +1,3 @@
-/**
- * Prints EXPLAIN QUERY PLAN (as markdown) for the key queries against a temp DB seeded with 10k employees.
- * Usage: npm run explain
- */
 import { CASES, EMPLOYEE_COUNT, captureStatements, environment, oneLine, openSeededTempDb } from './query-cases';
 
 interface PlanRow {

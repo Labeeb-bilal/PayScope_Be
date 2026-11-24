@@ -1,9 +1,3 @@
-/**
- * Times the key queries against a temp DB seeded with 10k employees.
- * For each case the SQL the app executes is captured once, prepared once, then executed
- * RUNS times (after WARMUP runs). Reports the median wall time per case in ms.
- * Usage: npm run bench
- */
 import { performance } from 'node:perf_hooks';
 import { CASES, EMPLOYEE_COUNT, captureStatements, environment, openSeededTempDb } from './query-cases';
 

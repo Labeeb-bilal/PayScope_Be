@@ -14,7 +14,6 @@ function appWith(script?: ScriptedTurn[], chatRateLimit = { max: 100, windowMs: 
   return { app: createApp(db, { llm: llm?.client, chatRateLimit }), llm };
 }
 
-/** Parses an SSE body into [{ event, data }]. */
 function parseSse(body: string): { event: string; data: Record<string, unknown> }[] {
   return body
     .split('\n\n')
@@ -87,7 +86,7 @@ describe('POST /api/assistant/chat', () => {
   it('streams an error event with the friendly message on provider 429', async () => {
     const { app } = appWith([{ throw: httpError(429) }]);
     const res = await request(app).post('/api/assistant/chat').send(question);
-    expect(res.status).toBe(200); // headers were already sent; the error travels in the stream
+    expect(res.status).toBe(200);
     expect(parseSse(res.text)).toEqual([{ event: 'error', data: { code: 'LLM_BUSY', message: BUSY_MESSAGE } }]);
   });
 
@@ -99,7 +98,6 @@ describe('POST /api/assistant/chat', () => {
     expect(limited.status).toBe(429);
     expect(limited.body.error.code).toBe('RATE_LIMITED');
     expect(Number(limited.headers['retry-after'])).toBeGreaterThan(0);
-    // Other routes are not limited.
     expect((await request(app).get('/api/assistant/status')).status).toBe(200);
   });
 });

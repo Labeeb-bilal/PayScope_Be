@@ -34,11 +34,6 @@ export const createEmployeeSchema = z.object({
 });
 export type CreateEmployeeInput = z.infer<typeof createEmployeeSchema>;
 
-/**
- * Salary is not editable here on purpose: it changes through /salary-changes so every
- * change has a reason and an effective date. The one exception is relocation: changing
- * country changes currency, so a new salary in the new currency is required.
- */
 export const updateEmployeeSchema = createEmployeeSchema
   .omit({ salary: true })
   .partial()

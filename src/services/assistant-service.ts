@@ -1,8 +1,3 @@
-/**
- * "Ask HR Assistant" agent loop: model -> requested tools -> results back to the model -> repeat,
- * at most `maxIterations` model calls. The last call is made with tool_choice "none" so the model
- * must answer with what it has. Numbers only ever come from tools, never from the prompt.
- */
 import type { DB } from '../db/connection';
 import { httpStatusOf, type ChatMessage, type LlmClient } from '../lib/llm-client';
 import { buildSystemPrompt } from './assistant-prompt';
@@ -35,7 +30,6 @@ export interface AssistantOptions {
   db: DB;
   llm: LlmClient;
   maxIterations?: number;
-  /** Only the most recent messages are sent to the model, to save tokens. */
   historyLimit?: number;
   now?: () => Date;
 }
@@ -52,7 +46,6 @@ function describeError(err: unknown, model: string, signal?: AbortSignal): { cod
   if (status === 429) return { code: 'LLM_BUSY', message: BUSY_MESSAGE };
   if (status === 413) return { code: 'LLM_TOO_LARGE', message: 'This conversation is too long for the AI assistant. Start a new chat and try again.' };
   if (status === 404) {
-    // Providers retire models; make that obvious instead of a generic failure.
     return { code: 'LLM_MODEL_UNAVAILABLE', message: `The AI model "${model}" is not available from the provider. Set LLM_MODEL on the server to a current tool-calling model.` };
   }
   if (status === 401 || status === 403) {
@@ -89,7 +82,7 @@ export function createAssistantService({ db, llm, maxIterations = MAX_ITERATIONS
             onEvent({ type: 'done', answer: turn.content, toolsUsed });
             return { ok: true, answer: turn.content, toolsUsed };
           }
-          if (isLast) break; // the model ignored tool_choice "none"
+          if (isLast) break;
 
           const calls = turn.toolCalls.map((c, i) => ({ ...c, id: c.id || `call_${iteration}_${i}` }));
           conversation.push({ role: 'assistant', content: turn.content || null, tool_calls: calls });
@@ -105,7 +98,6 @@ export function createAssistantService({ db, llm, maxIterations = MAX_ITERATIONS
         return { ok: true, answer: GAVE_UP_MESSAGE, toolsUsed };
       } catch (err) {
         const { code, message } = describeError(err, llm.model, signal);
-        // Log the provider error, never the conversation: it contains salary data.
         if (code === 'LLM_ERROR' || code === 'LLM_MODEL_UNAVAILABLE') console.error('Assistant LLM call failed:', (err as Error)?.message ?? err);
         onEvent({ type: 'error', code, message });
         return { ok: false, code, message, toolsUsed };

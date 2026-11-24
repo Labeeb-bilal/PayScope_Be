@@ -1,4 +1,3 @@
-/** RFC 4180 field escaping, plus a guard against spreadsheet formula injection (=, +, -, @). */
 export function csvField(value: unknown): string {
   if (value === null || value === undefined) return '';
   let s = String(value);

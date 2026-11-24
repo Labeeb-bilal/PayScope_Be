@@ -34,7 +34,6 @@ describe('assistant agent loop', () => {
       toolsUsed: [{ name: 'pay_benchmark', args: { jobTitle: 'Data Engineer', level: 'L3', country: 'AE' }, ok: true }],
     });
 
-    // Second request carries the assistant tool call and the tool result with the real numbers.
     expect(llm.requests).toHaveLength(2);
     const [, second] = llm.requests;
     const toolMessage = second!.messages.at(-1)!;
@@ -60,7 +59,7 @@ describe('assistant agent loop', () => {
 
   it('stops after the maximum number of iterations, forcing a text answer on the last one', async () => {
     const { db } = seeded();
-    const llm = fakeLlm([{ tools: [{ name: 'org_summary' }] }]); // never stops asking for tools
+    const llm = fakeLlm([{ tools: [{ name: 'org_summary' }] }]);
     const result = await createAssistantService({ db, llm: llm.client }).chat(ask('loop forever'));
     expect(llm.requests).toHaveLength(MAX_ITERATIONS);
     expect(llm.requests.map((r) => r.toolChoice)).toEqual([...Array(MAX_ITERATIONS - 1).fill('auto'), 'none']);

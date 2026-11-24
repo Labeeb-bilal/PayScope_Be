@@ -25,7 +25,6 @@ class AssistantDisabledError extends AppError {
   }
 }
 
-/** SSE frame: `event: <type>` + JSON payload. */
 function frame({ type, ...payload }: AssistantEvent): string {
   return `event: ${type}\ndata: ${JSON.stringify(payload)}\n\n`;
 }
@@ -37,10 +36,6 @@ export function assistantRouter(service: AssistantService | null, limits: RateLi
     res.json({ enabled: service !== null, model: service?.model ?? '' });
   });
 
-  /**
-   * Streams the answer as Server-Sent Events: tool_call, text_delta, done, error.
-   * The body is validated before the stream starts, so bad requests get a normal JSON 400.
-   */
   router.post('/chat', rateLimit(limits), async (req, res) => {
     if (!service) throw new AssistantDisabledError();
     const { messages } = chatBodySchema.parse(req.body);
@@ -49,11 +44,10 @@ export function assistantRouter(service: AssistantService | null, limits: RateLi
       'Content-Type': 'text/event-stream; charset=utf-8',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
-      'X-Accel-Buffering': 'no', // don't let proxies buffer the stream
+      'X-Accel-Buffering': 'no',
     });
     res.flushHeaders();
 
-    // Stop calling the model (and spending quota) if the browser goes away.
     const abort = new AbortController();
     res.on('close', () => {
       if (!res.writableEnded) abort.abort();

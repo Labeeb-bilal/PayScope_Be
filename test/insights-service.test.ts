@@ -3,12 +3,6 @@ import { createInsightsService } from '../src/services/insights-service';
 import { niceStep } from '../src/lib/stats';
 import { employeeInput, setup } from './helpers';
 
-/**
- * Hand-built dataset where the right answers are easy to verify by eye:
- * - 5 US L2 Software Engineers: 90k, 95k, 100k, 105k, 60k → median 95k, the 60k one is underpaid (ratio 0.63)
- * - 2 India L2 Software Engineers: 1,670,000 and 2,505,000 INR (= 20k and 30k USD)
- * - 1 US L3 Account Executive in Sales: 120k
- */
 function fixture() {
   const ctx = setup();
   const add = (o: Parameters<typeof employeeInput>[0]) => ctx.service.create(employeeInput(o));

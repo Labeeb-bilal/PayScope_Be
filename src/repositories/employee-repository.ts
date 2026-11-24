@@ -38,7 +38,6 @@ const SELECT_EMPLOYEE = `
          e.created_at AS createdAt, e.updated_at AS updatedAt
   FROM employees e JOIN countries c ON c.code = e.country_code`;
 
-/** Whitelisted ORDER BY expressions. Never interpolate user input into SQL. */
 const SORT_SQL: Record<ListQuery['sort'], string> = {
   name: 'e.last_name {dir}, e.first_name {dir}',
   salaryUsd: 'e.salary_usd {dir}',
@@ -49,13 +48,6 @@ const SORT_SQL: Record<ListQuery['sort'], string> = {
   employeeCode: 'e.employee_code {dir}',
 };
 
-/**
- * Turns free text into a safe FTS5 query: every whitespace-separated token becomes a quoted
- * prefix phrase ("carol"* AND "x"*), so FTS5 operators and punctuation in user input are never
- * interpreted. Inside quotes FTS5 applies the same tokenizer as the index, so "test.person" becomes
- * the phrase `test person*`. Tokens without any letter or digit (e.g. "%", "-", "(") are dropped.
- * Returns null when nothing searchable is left.
- */
 export function toFtsQuery(input: string): string | null {
   const tokens = input.split(/\s+/).filter((t) => /[\p{L}\p{N}]/u.test(t));
   if (tokens.length === 0) return null;
@@ -68,7 +60,7 @@ function buildWhere(filters: ListFilters): { sql: string; params: Record<string,
   if (filters.search) {
     const match = toFtsQuery(filters.search);
     if (match === null) {
-      clauses.push('0'); // only punctuation: nothing can match
+      clauses.push('0');
     } else {
       params.search = match;
       clauses.push('e.id IN (SELECT rowid FROM employees_fts WHERE employees_fts MATCH @search)');
@@ -112,8 +104,6 @@ export function createEmployeeRepository(db: DB) {
     list(query: ListQuery): { items: EmployeeRow[]; total: number } {
       const { sql: where, params } = buildWhere(query);
       const dir = query.order === 'desc' ? 'DESC' : 'ASC';
-      // Within one country every salary is in the same currency, so local salary orders exactly like USD
-      // and idx_employees_country_salary can return rows pre-sorted (no conversion, no temp B-tree).
       const sortSql = query.sort === 'salaryUsd' && query.country ? 'e.salary {dir}' : SORT_SQL[query.sort];
       const orderBy = `${sortSql.replaceAll('{dir}', dir)}, e.id ${dir}`;
       const total = (db.prepare(`SELECT COUNT(*) AS n FROM employees e ${where}`).get(params) as { n: number }).n;
@@ -123,7 +113,6 @@ export function createEmployeeRepository(db: DB) {
       return { items, total };
     },
 
-    /** Streams all matches (for CSV export) without loading pages. */
     iterate(filters: ListFilters): IterableIterator<EmployeeRow> {
       const { sql: where, params } = buildWhere(filters);
       return db.prepare(`${SELECT_EMPLOYEE} ${where} ORDER BY e.employee_code`).iterate(params) as IterableIterator<EmployeeRow>;
@@ -169,7 +158,6 @@ export function createEmployeeRepository(db: DB) {
       const set = keys.map((k) => `${columns[k]} = @${k}`).join(', ');
       db.prepare(`UPDATE employees SET ${set}, updated_at = datetime('now') WHERE id = @id`).run({ ...fields, id });
       if (keys.includes('salary') || keys.includes('countryCode')) {
-        // Callers already run inside a transaction, so the cache never disagrees with salary/country.
         db.prepare(`UPDATE employees SET salary_usd = ${salaryUsdSql('employees.salary', 'employees.country_code')} WHERE id = ?`).run(id);
       }
     },

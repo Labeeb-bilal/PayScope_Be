@@ -136,7 +136,7 @@ describe('EmployeeService.list', () => {
     const names = (search: string) => service.list(query({ search })).items.map((e) => e.firstName);
     expect(names('Carol X')).toEqual(['Carol']);
     expect(names('xu carol')).toEqual(['Carol']);
-    expect(names('carol zhang')).toEqual([]); // AND, not OR
+    expect(names('carol zhang')).toEqual([]);
     expect(names('  bob   you  ')).toEqual(['Bob']);
   });
 
@@ -162,7 +162,7 @@ describe('EmployeeService.list', () => {
     expect(total('% " * ( - :')).toBe(0);
     expect(total('"carol')).toBe(1);
     expect(total('carol)')).toBe(1);
-    expect(total('carol OR bob')).toBe(0); // OR is a literal word here, not an operator
+    expect(total('carol OR bob')).toBe(0);
     expect(total('-carol')).toBe(1);
   });
 
@@ -181,7 +181,6 @@ describe('EmployeeService.list', () => {
 
   it('sorts by USD-equivalent salary across currencies', () => {
     const { service } = seedFew();
-    // US 150k USD > GB 70k GBP (~88.6k USD) > IN 3M INR (~35.9k USD)
     const names = service.list(query({ sort: 'salaryUsd', order: 'desc' })).items.map((e) => e.firstName);
     expect(names).toEqual(['Alice', 'Carol', 'Bob']);
   });
@@ -194,7 +193,7 @@ describe('EmployeeService.list', () => {
     mk('High', 4_000_000);
     mk('Low', 900_000);
     mk('MidToo', 2_000_000);
-    mk('Outsider', 9_000_000, 'US'); // excluded by the filter
+    mk('Outsider', 9_000_000, 'US');
 
     const names = (order: 'asc' | 'desc') =>
       service.list(query({ country: 'IN', sort: 'salaryUsd', order })).items.map((e) => e.firstName);
