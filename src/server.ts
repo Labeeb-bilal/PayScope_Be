@@ -2,6 +2,7 @@ import { createApp } from './app';
 import { config } from './config';
 import { openDb } from './db/connection';
 import { seedDatabase } from './db/seed';
+import { createLlmClientFromEnv } from './lib/llm-client';
 
 const db = openDb(config.dbPath);
 
@@ -12,7 +13,10 @@ if (n === 0 && config.seedIfEmpty) {
   console.log(`Empty database: seeded 10,000 employees in ${Date.now() - started} ms`);
 }
 
-const app = createApp(db, { staticDir: config.staticDir });
+const llm = createLlmClientFromEnv();
+console.log(llm ? `AI assistant enabled (model ${llm.model})` : 'AI assistant disabled: set LLM_API_KEY to enable it');
+
+const app = createApp(db, { staticDir: config.staticDir, llm });
 const server = app.listen(config.port, () => console.log(`Salary Manager listening on http://localhost:${config.port}`));
 
 function shutdown() {

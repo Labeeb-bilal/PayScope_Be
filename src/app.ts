@@ -6,15 +6,23 @@ import { ZodError } from 'zod';
 import type { DB } from './db/connection';
 import { LEVEL_LABELS, LEVELS } from './db/reference-data';
 import { AppError } from './lib/errors';
+import type { LlmClient } from './lib/llm-client';
+import type { RateLimitOptions } from './lib/rate-limit';
+import { assistantRouter } from './routes/assistant';
 import { createReferenceRepository } from './repositories/reference-repository';
 import { employeesRouter } from './routes/employees';
 import { insightsRouter } from './routes/insights';
+import { createAssistantService } from './services/assistant-service';
 import { createEmployeeService } from './services/employee-service';
 import { createInsightsService } from './services/insights-service';
 
 export interface AppOptions {
   /** Built frontend to serve at '/'. Omitted in tests and in dev (Next dev server runs separately). */
   staticDir?: string;
+  /** LLM for the HR assistant. Omitted or null: the assistant is disabled and the rest of the app is unaffected. */
+  llm?: LlmClient | null;
+  /** Rate limit for POST /api/assistant/chat (default 20 per minute per IP). */
+  chatRateLimit?: RateLimitOptions;
 }
 
 export function createApp(db: DB, options: AppOptions = {}) {
@@ -37,6 +45,7 @@ export function createApp(db: DB, options: AppOptions = {}) {
   });
   app.use('/api/employees', employeesRouter(createEmployeeService(db)));
   app.use('/api/insights', insightsRouter(createInsightsService(db)));
+  app.use('/api/assistant', assistantRouter(options.llm ? createAssistantService({ db, llm: options.llm }) : null, options.chatRateLimit));
   app.use('/api', (_req, res) => res.status(404).json({ error: { code: 'NOT_FOUND', message: 'Unknown API route' } }));
 
   if (options.staticDir && fs.existsSync(options.staticDir)) {

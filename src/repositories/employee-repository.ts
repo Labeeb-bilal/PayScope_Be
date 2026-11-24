@@ -133,6 +133,11 @@ export function createEmployeeRepository(db: DB) {
       return db.prepare(`${SELECT_EMPLOYEE} WHERE e.id = ?`).get(id) as EmployeeRow | undefined;
     },
 
+    findIdByCode(employeeCode: string): number | undefined {
+      const row = db.prepare('SELECT id FROM employees WHERE employee_code = ?').get(employeeCode) as { id: number } | undefined;
+      return row?.id;
+    },
+
     findIdByEmail(email: string): number | undefined {
       const row = db.prepare('SELECT id FROM employees WHERE email = ?').get(email) as { id: number } | undefined;
       return row?.id;

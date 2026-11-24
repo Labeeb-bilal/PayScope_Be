@@ -47,6 +47,12 @@ export function createEmployeeService(db: DB) {
 
     get,
 
+    getByCode(employeeCode: string): EmployeeDetail {
+      const id = employees.findIdByCode(employeeCode.trim().toUpperCase());
+      if (id === undefined) throw new NotFoundError('Employee');
+      return get(id);
+    },
+
     create(input: CreateEmployeeInput): EmployeeDetail {
       const country = requireCountry(input.countryCode);
       ensureEmailFree(input.email);
