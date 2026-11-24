@@ -1,4 +1,4 @@
-import type { DB } from './connection';
+import { salaryUsdSql, type DB } from './connection';
 import { COUNTRIES, DEPARTMENTS, LEVELS, type Level } from './reference-data';
 
 /** Small, fast, deterministic PRNG (mulberry32). Same seed → same data everywhere. */
@@ -146,9 +146,9 @@ export function seedDatabase(db: DB, count = 10_000, seed = 42): number {
   const employees = generateEmployees(count, seed);
   const insertEmployee = db.prepare(`
     INSERT INTO employees (employee_code, first_name, last_name, email, job_title, level, department,
-                           country_code, salary, currency, hire_date)
+                           country_code, salary, currency, salary_usd, hire_date)
     VALUES (@employeeCode, @firstName, @lastName, @email, @jobTitle, @level, @department,
-            @countryCode, @salary, @currency, @hireDate)`);
+            @countryCode, @salary, @currency, ${salaryUsdSql('@salary', '@countryCode')}, @hireDate)`);
   const insertChange = db.prepare(`
     INSERT INTO salary_changes (employee_id, previous_salary, new_salary, currency, effective_date, reason)
     VALUES (?, ?, ?, ?, ?, ?)`);

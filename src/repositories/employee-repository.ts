@@ -1,4 +1,4 @@
-import type { DB } from '../db/connection';
+import { salaryUsdSql, type DB } from '../db/connection';
 import type { ListFilters, ListQuery } from '../schemas';
 
 export interface EmployeeRow {
@@ -34,14 +34,14 @@ export interface SalaryChangeRow {
 const SELECT_EMPLOYEE = `
   SELECT e.id, e.employee_code AS employeeCode, e.first_name AS firstName, e.last_name AS lastName, e.email,
          e.job_title AS jobTitle, e.level, e.department, e.country_code AS countryCode, c.name AS countryName,
-         e.salary, e.currency, ROUND(e.salary / c.usd_rate) AS salaryUsd, e.hire_date AS hireDate,
+         e.salary, e.currency, e.salary_usd AS salaryUsd, e.hire_date AS hireDate,
          e.created_at AS createdAt, e.updated_at AS updatedAt
   FROM employees e JOIN countries c ON c.code = e.country_code`;
 
 /** Whitelisted ORDER BY expressions. Never interpolate user input into SQL. */
 const SORT_SQL: Record<ListQuery['sort'], string> = {
   name: 'e.last_name {dir}, e.first_name {dir}',
-  salaryUsd: 'e.salary / c.usd_rate {dir}',
+  salaryUsd: 'e.salary_usd {dir}',
   hireDate: 'e.hire_date {dir}',
   jobTitle: 'e.job_title {dir}, e.level {dir}',
   country: 'c.name {dir}',
@@ -131,9 +131,9 @@ export function createEmployeeRepository(db: DB) {
     insert(e: NewEmployeeRecord): number {
       const result = db
         .prepare(`INSERT INTO employees (employee_code, first_name, last_name, email, job_title, level, department,
-                                         country_code, salary, currency, hire_date)
+                                         country_code, salary, currency, salary_usd, hire_date)
                   VALUES (@employeeCode, @firstName, @lastName, @email, @jobTitle, @level, @department,
-                          @countryCode, @salary, @currency, @hireDate)`)
+                          @countryCode, @salary, @currency, ${salaryUsdSql('@salary', '@countryCode')}, @hireDate)`)
         .run(e);
       return Number(result.lastInsertRowid);
     },
@@ -148,6 +148,10 @@ export function createEmployeeRepository(db: DB) {
       if (keys.length === 0) return;
       const set = keys.map((k) => `${columns[k]} = @${k}`).join(', ');
       db.prepare(`UPDATE employees SET ${set}, updated_at = datetime('now') WHERE id = @id`).run({ ...fields, id });
+      if (keys.includes('salary') || keys.includes('countryCode')) {
+        // Callers already run inside a transaction, so the cache never disagrees with salary/country.
+        db.prepare(`UPDATE employees SET salary_usd = ${salaryUsdSql('employees.salary', 'employees.country_code')} WHERE id = ?`).run(id);
+      }
     },
 
     delete(id: number): boolean {
