@@ -48,8 +48,12 @@ CREATE TABLE IF NOT EXISTS salary_changes (
 
 const INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_employees_country    ON employees(country_code);
-CREATE INDEX IF NOT EXISTS idx_employees_department ON employees(department);
-CREATE INDEX IF NOT EXISTS idx_employees_peer       ON employees(job_title, level, country_code);
+-- (group, value) pairs: filters on the group, and pay insights read percentiles straight from the
+-- sorted index (ORDER BY value LIMIT 1 OFFSET k) instead of sorting. See docs/05-performance.md.
+CREATE INDEX IF NOT EXISTS idx_employees_department_usd ON employees(department, salary_usd);
+CREATE INDEX IF NOT EXISTS idx_employees_level_usd      ON employees(level, salary_usd);
+-- Peer group (title, level, country) + salary: benchmarks, peer comparison and pay-equity medians.
+CREATE INDEX IF NOT EXISTS idx_employees_peer_salary    ON employees(job_title, level, country_code, salary);
 -- Not used by search (FTS5 does that) but kept: the default directory view (ORDER BY last_name, first_name)
 -- walks it and stops after one page. Without it that page sorts all rows: 0.05 ms -> 2.3 ms (docs/05-performance.md).
 CREATE INDEX IF NOT EXISTS idx_employees_name       ON employees(last_name, first_name);
@@ -146,6 +150,8 @@ function migrate(db: DB): void {
   db.exec(FTS_TRIGGERS);
   // Only ever served LIKE 'x%' search on first_name, which FTS5 replaced.
   db.exec('DROP INDEX IF EXISTS idx_employees_first_name');
+  // Replaced by wider indexes with the same leading columns (department, salary_usd) and (..., salary).
+  db.exec('DROP INDEX IF EXISTS idx_employees_department; DROP INDEX IF EXISTS idx_employees_peer;');
 }
 
 /** Opens (or creates) a database, applies schema, migrations and reference data. Use ':memory:' in tests. */

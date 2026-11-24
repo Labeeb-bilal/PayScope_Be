@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { groupBy, histogram, median, percentileSorted, summarize, toUsd } from '../src/lib/stats';
+import { groupBy, histogram, median, percentileSorted } from '../src/lib/stats';
 
 describe('percentileSorted', () => {
   it('matches Excel PERCENTILE.INC on a known list', () => {
@@ -29,18 +29,6 @@ describe('median', () => {
   });
 });
 
-describe('summarize', () => {
-  it('returns null for no data', () => {
-    expect(summarize([])).toBeNull();
-  });
-
-  it('computes all summary fields', () => {
-    expect(summarize([40, 10, 30, 20])).toEqual({
-      count: 4, min: 10, p25: 17.5, median: 25, p75: 32.5, max: 40, mean: 25, total: 100,
-    });
-  });
-});
-
 describe('histogram', () => {
   it('buckets values with an open-ended last bucket', () => {
     const buckets = histogram([5, 15, 15, 25, 999], 10, 3);
@@ -51,12 +39,6 @@ describe('histogram', () => {
   it('handles empty input and rejects bad bucket size', () => {
     expect(histogram([], 10)).toEqual([]);
     expect(() => histogram([1], 0)).toThrow();
-  });
-});
-
-describe('toUsd', () => {
-  it('divides by units-per-USD', () => {
-    expect(toUsd(835_000, 83.5)).toBe(10_000);
   });
 });
 

@@ -126,6 +126,8 @@ describe('migration from a pre-salary_usd, pre-FTS database file', () => {
         previous_salary INTEGER, new_salary INTEGER NOT NULL, currency TEXT NOT NULL, effective_date TEXT NOT NULL,
         reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
       CREATE INDEX idx_employees_first_name ON employees(first_name);
+      CREATE INDEX idx_employees_department ON employees(department);
+      CREATE INDEX idx_employees_peer ON employees(job_title, level, country_code);
       INSERT INTO countries VALUES ('US', 'United States', 'USD', 1), ('IN', 'India', 'INR', 83.5);
       INSERT INTO employees (employee_code, first_name, last_name, email, job_title, level, department, country_code, salary, currency, hire_date)
       VALUES ('ACME-00001', 'Old', 'Timer', 'old@acme.example', 'Software Engineer', 'L3', 'Engineering', 'IN', 3000000, 'INR', '2019-01-01'),
@@ -146,6 +148,10 @@ describe('migration from a pre-salary_usd, pre-FTS database file', () => {
     expect(indexes).toContain('idx_employees_salary_usd');
     expect(indexes).toContain('idx_employees_name');
     expect(indexes).not.toContain('idx_employees_first_name');
+    // Narrow indexes replaced by (group, value) ones used for insights percentiles.
+    expect(indexes).not.toContain('idx_employees_department');
+    expect(indexes).not.toContain('idx_employees_peer');
+    expect(indexes).toEqual(expect.arrayContaining(['idx_employees_department_usd', 'idx_employees_level_usd', 'idx_employees_peer_salary']));
     // The full-text index is backfilled from the existing rows.
     const service = createEmployeeService(db);
     expect(service.list(listQuerySchema.parse({ search: 'old timer' })).items.map((e) => e.employeeCode)).toEqual(['ACME-00001']);

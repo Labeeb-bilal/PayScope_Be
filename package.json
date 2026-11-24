@@ -13,7 +13,8 @@
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
     "explain": "tsx scripts/explain.ts",
-    "bench": "tsx scripts/bench.ts"
+    "bench": "tsx scripts/bench.ts",
+    "bench:insights": "tsx scripts/bench-insights.ts"
   },
   "dependencies": {
     "better-sqlite3": "^13.2.0",

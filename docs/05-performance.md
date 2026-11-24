@@ -339,3 +339,130 @@ country `COUNT(*)`. It could be dropped to save a write per insert; it was left 
 - Offset pagination degrades for deep pages; switch to keyset pagination on `(sort_key, id)`, which the indexes above already support.
 - Move to Postgres: concurrent writers (SQLite has one writer), `percentile_cont` for in-database percentiles, materialised
   views for the aggregates, `pg_trgm` or `tsvector` for search, and a proper FX table with effective dates.
+
+## Insights: computed in SQL instead of in Node
+
+### Problem
+
+Every insight called one shared `load()` that read **every employee row** (11 columns, joined to `countries`),
+converted each salary to USD in TypeScript (`salary / usd_rate`), then grouped, summed and sorted in memory.
+The Pay insights page makes 6 such calls, so one page view read the whole table 6 times. Measured breakdown at 10k
+employees: reading the 11-column rows ≈ 8 ms, the USD division ≈ 0.2 ms, sort + percentiles ≈ 2.3 ms. So the cost was
+mostly moving rows into Node, not the arithmetic.
+
+### Change
+
+- **USD from the stored column.** Every USD figure uses `employees.salary_usd`. No join to `countries` and no division per row.
+- **Counts, totals, averages, min/max** come from SQL `GROUP BY` with `COUNT`/`SUM`/`AVG`/`MIN`/`MAX`.
+- **Percentiles** (median, P25, P75, P99) are read from a **sorted index**: `ORDER BY value LIMIT 1 OFFSET k` with `k`
+  computed from the group's `COUNT(*)`. SQLite walks the index and returns one number, with no sort. Two lookups give the
+  same linear interpolation as before (Excel `PERCENTILE.INC`).
+- **Histogram** buckets come from `GROUP BY bucket`.
+- **Pay equity:** the peer-group columns are streamed from a covering index already sorted by
+  (title, level, country, salary), so each group's median is just its middle value. Then one SQL statement finds each
+  group's underpaid people with an index range search (`salary < threshold × median`), orders them and computes
+  `totalFlagged` / `totalGapUsd`. The USD gap is computed only for flagged rows.
+- **Indexes** (net +1):
+  - `(department)` → `(department, salary_usd)`
+  - new `(level, salary_usd)`
+  - `(job_title, level, country_code)` → `(job_title, level, country_code, salary)`
+
+  `(country_code, salary)` and `(salary_usd)` already existed. Old database files drop the replaced indexes on open.
+  Every percentile lookup now runs as `SEARCH … USING COVERING INDEX`. The only temp B-tree left is the histogram's
+  `GROUP BY` over at most 16 buckets.
+
+### Rejected: window functions
+
+`ROW_NUMBER() OVER (PARTITION BY … ORDER BY …)` keeps percentiles fully in SQL, but measured **slower** than the original
+JavaScript, because SQLite sorts and buffers every row:
+
+| Approach | Pay equity, 10k | Pay equity, 100k | Insights page, 10k | Insights page, 100k |
+|---|---:|---:|---:|---:|
+| Original (all rows into Node) | 9.35 ms | 103.51 ms | 59.90 ms | 709.80 ms |
+| Window functions | 123.83 ms | 2,612.21 ms | 202.14 ms | 3,480.70 ms |
+| One indexed `OFFSET` query per peer group (~870 groups) | 12.87 ms | 22.61 ms | | |
+| **Final (index lookups + covering-index stream for peer medians)** | **4.28 ms** | **38.41 ms** | **14.69 ms** | **148.92 ms** |
+
+(The per-group `OFFSET` row is from a standalone prototype of pay equity only. At 10k its ~1,700 tiny queries cost more
+in per-call overhead than streaming the sorted index once.)
+
+### Before / after
+
+`npm run bench:insights`, median of 30 runs after 5 warm-ups, Apple M1, Node v26.4.0. All times in ms.
+
+| Call | Before, 10k | After, 10k | Before, 100k | After, 100k |
+|---|---:|---:|---:|---:|
+| summary | 11.87 | 1.86 | 132.88 | 20.65 |
+| byCountry | 10.85 | 3.88 | 128.96 | 46.24 |
+| byDepartment | 9.33 | 1.17 | 117.37 | 11.04 |
+| byLevel | 9.36 | 1.53 | 112.51 | 12.20 |
+| distribution (org, USD) | 9.14 | 1.95 | 114.57 | 20.38 |
+| distribution (IN, local) | 1.86 | 0.64 | 26.41 | 6.20 |
+| benchmark (Data Engineer, L3, AE) | 0.04 | 0.10 | 0.11 | 0.13 |
+| payEquity (default) | 9.35 | 4.28 | 103.51 | 38.41 |
+| **Insights page (6 calls)** | 59.90 | 14.69 | 709.80 | 148.92 |
+
+The insights page is **4.1× faster at 10k** and **4.8× faster at 100k**. The single benchmark lookup got slower
+(0.04 → 0.10 ms) because it now makes a few indexed lookups instead of one filtered read; it is still a tenth of a
+millisecond. The sort and arithmetic no longer block Node's event loop for 100+ ms at 100k rows. That mattered because
+the synchronous driver means a long insight call delays every other request.
+
+Write cost of the index changes was within noise: seeding 10k took 142.9 → 137.6 ms, and a salary change
+0.125 → 0.121 ms (medians of 7 runs).
+
+### Correctness
+
+- The old and new implementations were run side by side on the full 10k seed and every returned value compared
+  (5,218 values). All local-currency figures, medians, percentiles and averages are **identical**. Pay equity flags the
+  same people with the same numbers and the same total gap ($6,570,767 at threshold 0.8).
+- Expected differences come from using the rounded per-employee `salary_usd`:
+  - USD totals move by a few dollars (largest: total payroll −$46 on $653,374,519, 0.00001%).
+  - One employee sits exactly on a histogram bucket boundary and moves to the next bucket.
+- Pay-equity order among near-ties is now exact. The old code rounded the ratio to 3 decimals before sorting, so
+  0.5709 and 0.5714 tied and their order depended on grouping order.
+- `test/insights-repository.test.ts` checks every SQL aggregate, percentile, histogram and pay-equity result against a
+  plain in-memory oracle on 1,500 seeded employees. A planted off-by-one in the percentile lookup fails 6 of its 10 tests.
+
+## Future improvements
+
+### SQLite-backed API response cache (designed, not built)
+
+**Why:** insights responses are recomputed on every request. That's ~15 ms per Pay insights page at 10k employees
+and ~146 ms at 100k (measured above). The data changes rarely (salary edits) and is read often (dashboard, assistant
+tools), so the same answers get recomputed again and again. A cache makes repeat reads a single indexed lookup. It also
+stops large insight calls from blocking the synchronous API for other requests.
+
+**Why SQLite and not Redis:** no extra server to run. More importantly, the cache can live in the **same database file**
+as the salaries, so it can be invalidated **inside the same transaction** as the write that makes it stale. With an
+external cache, invalidation is a separate step after the commit, and a crash in between leaves stale data behind.
+
+**Design:**
+- `api_cache(key TEXT PRIMARY KEY, version INTEGER, body TEXT, created_at TEXT)`. `key` is the normalised request
+  (path + sorted query), e.g. `/api/insights/benchmark?country=AE&jobTitle=Data+Engineer`.
+- `data_version` is a one-row counter. `AFTER INSERT / UPDATE / DELETE` triggers on `employees` (and on `countries`, for
+  FX rate changes) increment it, so every write path bumps it, including the seed script and direct SQL. The counter
+  update is part of the writing transaction.
+- On a request, serve `body` only if its `version` equals the current `data_version`. Otherwise compute, store with
+  the current version, and return. Stale entries never need a bulk delete because they simply stop matching; a periodic
+  `DELETE … WHERE version < current` reclaims space.
+- Scope: `/api/insights/*` and `/api/meta`. Not the employee list or search: they change constantly and already take
+  under 0.2 ms.
+- An `X-Cache: HIT | MISS` response header for visibility, and a test that a salary change makes the next insights
+  response fresh.
+
+**Durability:**
+- The cache is a file on disk, so it survives API crashes and restarts. With `synchronous=NORMAL`, a power loss may drop
+  the last few cache writes.
+- On hosting with an ephemeral disk (Render free plan) it's wiped on restart together with the data, which is re-seeded.
+- Losing the cache is always harmless: entries are recomputed on the next request. Correctness depends only on the
+  version check, never on the cache surviving.
+
+**Costs and limits:**
+- One extra tiny write (the counter) per employee write.
+- Cache fills add writes to SQLite's single-writer lock.
+- Works for one server (or several processes sharing the file). With several servers on separate disks, a shared
+  cache (Redis) or HTTP caching with `ETag` keyed on `data_version` would be needed.
+
+**When to build it:** when headcount approaches ~100k, when several people use the dashboard at once, or if the
+assistant's tool calls become a noticeable share of API load. At 10k employees and one HR user the gain is small
+(~15 ms per page view), which is why it isn't built yet.

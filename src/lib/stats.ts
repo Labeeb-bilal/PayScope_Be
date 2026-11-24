@@ -1,6 +1,7 @@
 /**
- * Pure statistics helpers. SQLite has no percentile functions, and for ≤10k values
- * sorting in memory is ~1 ms, so we keep the maths here where it is easy to test.
+ * Pure statistics helpers. The insights themselves are computed in SQLite (see
+ * repositories/insights-repository.ts); these in-memory versions define the expected maths
+ * (e.g. PERCENTILE.INC interpolation) and are the oracle the SQL implementation is tested against.
  */
 
 export interface SummaryStats {
@@ -28,22 +29,6 @@ export function percentileSorted(sorted: readonly number[], p: number): number {
 
 export function median(values: readonly number[]): number {
   return percentileSorted([...values].sort((a, b) => a - b), 0.5);
-}
-
-export function summarize(values: readonly number[]): SummaryStats | null {
-  if (values.length === 0) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const total = sorted.reduce((s, v) => s + v, 0);
-  return {
-    count: sorted.length,
-    min: sorted[0]!,
-    p25: percentileSorted(sorted, 0.25),
-    median: percentileSorted(sorted, 0.5),
-    p75: percentileSorted(sorted, 0.75),
-    max: sorted[sorted.length - 1]!,
-    mean: total / sorted.length,
-    total,
-  };
 }
 
 export interface HistogramBucket {
@@ -78,11 +63,6 @@ export function niceStep(raw: number): number {
   const normalized = raw / magnitude;
   const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 2.5 ? 2.5 : normalized <= 5 ? 5 : 10;
   return nice * magnitude;
-}
-
-/** Converts a local-currency amount to USD using "units per USD". */
-export function toUsd(amount: number, usdRate: number): number {
-  return amount / usdRate;
 }
 
 export function groupBy<T, K extends string>(items: readonly T[], key: (item: T) => K): Map<K, T[]> {

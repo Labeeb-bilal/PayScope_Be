@@ -1,145 +1,134 @@
 import type { DB } from '../db/connection';
 import { LEVELS } from '../db/reference-data';
 import { NotFoundError } from '../lib/errors';
-import { groupBy, histogram, niceStep, percentileSorted, summarize, toUsd, type SummaryStats } from '../lib/stats';
-
-interface PayRow {
-  id: number;
-  employeeCode: string;
-  name: string;
-  jobTitle: string;
-  level: string;
-  department: string;
-  countryCode: string;
-  countryName: string;
-  currency: string;
-  salary: number;
-  usdRate: number;
-}
+import { niceStep, type SummaryStats } from '../lib/stats';
+import { createInsightsRepository, type GroupAggregate } from '../repositories/insights-repository';
+import { createReferenceRepository } from '../repositories/reference-repository';
 
 const round = (n: number) => Math.round(n);
+const QUARTILES = [0.25, 0.5, 0.75] as const;
 
-function roundStats(s: SummaryStats): SummaryStats {
-  return { count: s.count, min: s.min, p25: round(s.p25), median: round(s.median), p75: round(s.p75), max: s.max, mean: round(s.mean), total: s.total };
+/** SummaryStats from SQL aggregates + indexed percentile lookups, rounded for display. */
+function stats(agg: GroupAggregate, [p25, median, p75]: number[]): SummaryStats {
+  return { count: agg.count, min: agg.min, p25: round(p25!), median: round(median!), p75: round(p75!), max: agg.max, mean: round(agg.mean), total: agg.total };
 }
 
 /**
- * Answers "how does the org pay people?". Reads the pay columns once per call (10k rows ≈ a few ms)
- * and aggregates in memory. Local-currency stats are only computed within a single currency.
- * Anything spanning countries is converted to USD.
+ * Answers "how does the org pay people?". Totals, counts and averages come from SQL GROUP BY;
+ * percentiles from indexed lookups; pay-equity flags from one SQL statement. Node never loads the
+ * employee table. Cross-country figures use the stored USD value (employees.salary_usd);
+ * per-country figures stay in local currency.
  */
 export function createInsightsService(db: DB) {
-  function load(filter: { country?: string; department?: string; jobTitle?: string; level?: string } = {}): PayRow[] {
-    const clauses: string[] = [];
-    if (filter.country) clauses.push('e.country_code = @country');
-    if (filter.department) clauses.push('e.department = @department');
-    if (filter.jobTitle) clauses.push('e.job_title = @jobTitle');
-    if (filter.level) clauses.push('e.level = @level');
-    return db
-      .prepare(`SELECT e.id, e.employee_code AS employeeCode, e.first_name || ' ' || e.last_name AS name, e.job_title AS jobTitle,
-                       e.level, e.department, e.country_code AS countryCode, c.name AS countryName, e.currency, e.salary,
-                       c.usd_rate AS usdRate
-                FROM employees e JOIN countries c ON c.code = e.country_code
-                ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''}`)
-      .all(filter) as PayRow[];
-  }
-
-  const usd = (r: PayRow) => toUsd(r.salary, r.usdRate);
+  const repo = createInsightsRepository(db);
+  const reference = createReferenceRepository(db);
+  const countriesByCode = () => new Map(reference.countries().map((c) => [c.code, c]));
 
   return {
     summary() {
-      const rows = load();
-      const stats = summarize(rows.map(usd));
+      const [all] = repo.aggregates('all', 'usd');
+      const distinct = repo.distinctCounts();
+      if (!all) return { headcount: 0, totalPayrollUsd: 0, medianSalaryUsd: 0, meanSalaryUsd: 0, countries: 0, departments: 0 };
+      const [median] = repo.percentiles('all', 'usd', '', all.count, [0.5]);
       return {
-        headcount: rows.length,
-        totalPayrollUsd: round(stats?.total ?? 0),
-        medianSalaryUsd: round(stats?.median ?? 0),
-        meanSalaryUsd: round(stats?.mean ?? 0),
-        countries: new Set(rows.map((r) => r.countryCode)).size,
-        departments: new Set(rows.map((r) => r.department)).size,
+        headcount: all.count,
+        totalPayrollUsd: round(all.total),
+        medianSalaryUsd: round(median!),
+        meanSalaryUsd: round(all.mean),
+        countries: distinct.countries,
+        departments: distinct.departments,
       };
     },
 
     byCountry() {
-      const groups = groupBy(load(), (r) => r.countryCode);
-      return [...groups.values()]
-        .map((rows) => {
-          const first = rows[0]!;
-          const usdStats = summarize(rows.map(usd))!;
+      const countries = countriesByCode();
+      const usdTotals = new Map(repo.aggregates('country', 'usd').map((a) => [a.key, a.total]));
+      return repo
+        .aggregates('country', 'local')
+        .map((agg) => {
+          const country = countries.get(agg.key)!;
+          const [medianUsd] = repo.percentiles('country', 'usd', agg.key, agg.count, [0.5]);
           return {
-            countryCode: first.countryCode,
-            countryName: first.countryName,
-            currency: first.currency,
-            headcount: rows.length,
-            local: roundStats(summarize(rows.map((r) => r.salary))!),
-            medianUsd: round(usdStats.median),
-            totalUsd: round(usdStats.total),
+            countryCode: agg.key,
+            countryName: country.name,
+            currency: country.currency,
+            headcount: agg.count,
+            local: stats(agg, repo.percentiles('country', 'local', agg.key, agg.count, QUARTILES)),
+            medianUsd: round(medianUsd!),
+            totalUsd: round(usdTotals.get(agg.key) ?? 0),
           };
         })
         .sort((a, b) => b.headcount - a.headcount);
     },
 
     byDepartment() {
-      const rows = load();
-      const grandTotal = rows.reduce((s, r) => s + usd(r), 0);
-      return [...groupBy(rows, (r) => r.department).entries()]
-        .map(([department, group]) => {
-          const s = summarize(group.map(usd))!;
-          return {
-            department,
-            headcount: group.length,
-            medianUsd: round(s.median),
-            meanUsd: round(s.mean),
-            totalUsd: round(s.total),
-            payrollShare: grandTotal ? s.total / grandTotal : 0,
-          };
-        })
+      const groups = repo.aggregates('department', 'usd');
+      const grandTotal = groups.reduce((sum, g) => sum + g.total, 0); // one number per department
+      return groups
+        .map((g) => ({
+          department: g.key,
+          headcount: g.count,
+          medianUsd: round(repo.percentiles('department', 'usd', g.key, g.count, [0.5])[0]!),
+          meanUsd: round(g.mean),
+          totalUsd: round(g.total),
+          payrollShare: grandTotal ? g.total / grandTotal : 0,
+        }))
         .sort((a, b) => b.totalUsd - a.totalUsd);
     },
 
     byLevel() {
-      const groups = groupBy(load(), (r) => r.level);
+      const groups = new Map(repo.aggregates('level', 'usd').map((a) => [a.key, a]));
       return LEVELS.filter((l) => groups.has(l)).map((level) => {
-        const s = summarize(groups.get(level)!.map(usd))!;
-        return { level, headcount: s.count, medianUsd: round(s.median), p25Usd: round(s.p25), p75Usd: round(s.p75) };
+        const g = groups.get(level)!;
+        const [p25, median, p75] = repo.percentiles('level', 'usd', level, g.count, QUARTILES);
+        return { level, headcount: g.count, medianUsd: round(median!), p25Usd: round(p25!), p75Usd: round(p75!) };
       });
     },
 
     /** Salary distribution: in local currency when one country is selected, otherwise USD. */
     distribution(country?: string) {
-      const rows = load({ country });
-      if (country && rows.length === 0) throw new NotFoundError('Employees for country');
-      const values = country ? rows.map((r) => r.salary) : rows.map(usd);
-      const currency = country ? rows[0]!.currency : 'USD';
-      if (values.length === 0) return { currency, buckets: [] };
-      const sorted = [...values].sort((a, b) => a - b);
-      // Size buckets on P99 so a few outliers don't squash the chart.
-      const step = niceStep(percentileSorted(sorted, 0.99) / 15);
+      const measure = country ? 'local' : 'usd';
+      const filters = country ? { country } : {};
+      const [all] = repo.aggregates('all', measure, filters);
+      if (!all) {
+        if (country) throw new NotFoundError('Employees for country');
+        return { currency: 'USD', buckets: [] };
+      }
+      // Size buckets on P99 so a few outliers don't squash the chart; the last bucket is open-ended.
+      const [p99] = repo.percentiles('all', measure, '', all.count, [0.99], filters);
+      const step = niceStep(p99! / 15);
+      const bucketCount = Math.min(16, Math.floor(all.max / step) + 1);
+      const counts = repo.histogram(measure, step, bucketCount, filters);
       return {
-        currency,
-        buckets: histogram(values, step, 16).map((b) => ({ ...b, to: Number.isFinite(b.to) ? b.to : null })),
+        currency: country ? countriesByCode().get(country)!.currency : 'USD',
+        buckets: Array.from({ length: bucketCount }, (_, i) => ({
+          from: i * step,
+          to: i === bucketCount - 1 ? null : (i + 1) * step,
+          count: counts.get(i) ?? 0,
+        })),
       };
     },
 
     /** "What do we pay a <title> (at <level>) (in <country>)?" Stats per country × level in local currency. */
     benchmark(q: { jobTitle: string; level?: string; country?: string }) {
-      const rows = load({ jobTitle: q.jobTitle, level: q.level, country: q.country });
-      const groups = groupBy(rows, (r) => `${r.countryCode}|${r.level}`);
-      const items = [...groups.values()]
-        .map((group) => {
-          const first = group[0]!;
-          const local = roundStats(summarize(group.map((r) => r.salary))!);
+      const filters = { jobTitle: q.jobTitle, level: q.level, country: q.country };
+      const countries = countriesByCode();
+      const groups = repo.aggregates('benchmark', 'local', filters);
+      const items = groups
+        .map((g) => {
+          const [countryCode, level] = g.key.split('|') as [string, string];
+          const country = countries.get(countryCode)!;
           return {
-            countryCode: first.countryCode,
-            countryName: first.countryName,
-            currency: first.currency,
-            level: first.level,
-            ...local,
-            medianUsd: round(toUsd(local.median, first.usdRate)),
+            countryCode,
+            countryName: country.name,
+            currency: country.currency,
+            level,
+            ...stats(g, repo.percentiles('benchmark', 'local', g.key, g.count, QUARTILES, filters)),
+            medianUsd: round(repo.percentiles('benchmark', 'usd', g.key, g.count, [0.5], filters)[0]!),
           };
         })
         .sort((a, b) => a.countryName.localeCompare(b.countryName) || a.level.localeCompare(b.level));
-      return { jobTitle: q.jobTitle, headcount: rows.length, items };
+      return { jobTitle: q.jobTitle, headcount: groups.reduce((sum, g) => sum + g.count, 0), items };
     },
 
     /**
@@ -147,40 +136,27 @@ export function createInsightsService(db: DB) {
      * (same job title, level and country). Small peer groups are skipped: a median of 2 people isn't a benchmark.
      */
     payEquity(q: { threshold: number; minPeers: number; limit: number; country?: string; department?: string }) {
-      const peers = groupBy(load(), (r) => `${r.jobTitle}|${r.level}|${r.countryCode}`);
-      const flagged = [];
-      for (const group of peers.values()) {
-        if (group.length < q.minPeers) continue;
-        const peerMedian = percentileSorted(group.map((r) => r.salary).sort((a, b) => a - b), 0.5);
-        for (const r of group) {
-          const ratio = r.salary / peerMedian;
-          if (ratio >= q.threshold) continue;
-          if (q.country && r.countryCode !== q.country) continue;
-          if (q.department && r.department !== q.department) continue;
-          flagged.push({
-            id: r.id,
-            employeeCode: r.employeeCode,
-            name: r.name,
-            jobTitle: r.jobTitle,
-            level: r.level,
-            department: r.department,
-            countryCode: r.countryCode,
-            currency: r.currency,
-            salary: r.salary,
-            peerMedian: round(peerMedian),
-            peerCount: group.length,
-            ratio: Math.round(ratio * 1000) / 1000,
-            gapToMedian: round(peerMedian - r.salary),
-            gapToMedianUsd: round(toUsd(peerMedian - r.salary, r.usdRate)),
-          });
-        }
-      }
-      flagged.sort((a, b) => a.ratio - b.ratio);
+      const result = repo.payEquity(q);
       return {
         threshold: q.threshold,
-        totalFlagged: flagged.length,
-        totalGapUsd: flagged.reduce((s, f) => s + f.gapToMedianUsd, 0),
-        items: flagged.slice(0, q.limit),
+        totalFlagged: result.totalFlagged,
+        totalGapUsd: round(result.totalGapUsd),
+        items: result.items.map((f) => ({
+          id: f.id,
+          employeeCode: f.employeeCode,
+          name: f.name,
+          jobTitle: f.jobTitle,
+          level: f.level,
+          department: f.department,
+          countryCode: f.countryCode,
+          currency: f.currency,
+          salary: f.salary,
+          peerMedian: round(f.peerMedian),
+          peerCount: f.peerCount,
+          ratio: Math.round(f.ratio * 1000) / 1000,
+          gapToMedian: round(f.peerMedian - f.salary),
+          gapToMedianUsd: round(f.gapToMedianUsd),
+        })),
       };
     },
   };
