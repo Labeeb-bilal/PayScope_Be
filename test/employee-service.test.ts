@@ -131,6 +131,54 @@ describe('EmployeeService.list', () => {
     expect(service.list(query({ search: '%' })).total).toBe(0);
   });
 
+  it('search: multi-word input matches tokens in any order and field (AND)', () => {
+    const { service } = seedFew();
+    const names = (search: string) => service.list(query({ search })).items.map((e) => e.firstName);
+    expect(names('Carol X')).toEqual(['Carol']);
+    expect(names('xu carol')).toEqual(['Carol']);
+    expect(names('carol zhang')).toEqual([]); // AND, not OR
+    expect(names('  bob   you  ')).toEqual(['Bob']);
+  });
+
+  it('search: email prefix and employee code', () => {
+    const { service } = setup();
+    service.create(employeeInput({ firstName: 'Dana', email: 'dana.wright@acme.example' }));
+    service.create(employeeInput({ firstName: 'Eve', email: 'eve@acme.example' }));
+    const names = (search: string) => service.list(query({ search })).items.map((e) => e.firstName);
+    expect(names('dana.wr')).toEqual(['Dana']);
+    expect(names('dana.wright@acme')).toEqual(['Dana']);
+    expect(names('ACME-00002')).toEqual(['Eve']);
+    expect(names('acme-0000').sort()).toEqual(['Dana', 'Eve']);
+    expect(names('00001')).toEqual(['Dana']);
+  });
+
+  it('search: special characters never throw and are treated as separators or ignored', () => {
+    const { service } = seedFew();
+    const total = (search: string) => service.list(query({ search })).total;
+    for (const s of ['%', '"', '*', '(', ')', '-', ':', '""', '"carol', 'carol"', 'ca*rol', 'NEAR(carol', 'carol OR bob',
+      'carol AND', 'NOT', '^carol', '-carol', 'carol:', 'first_name:carol', '{carol}', "o'brien", '\\', '%_%', '+', '@', '.']) {
+      expect(() => total(s), s).not.toThrow();
+    }
+    expect(total('% " * ( - :')).toBe(0);
+    expect(total('"carol')).toBe(1);
+    expect(total('carol)')).toBe(1);
+    expect(total('carol OR bob')).toBe(0); // OR is a literal word here, not an operator
+    expect(total('-carol')).toBe(1);
+  });
+
+  it('search index follows inserts, renames and deletes', () => {
+    const { service } = seedFew();
+    const total = (search: string) => service.list(query({ search })).total;
+    const carol = service.list(query({ search: 'carol' })).items[0]!;
+    service.update(carol.id, { firstName: 'Caroline', lastName: 'Ng' });
+    expect(total('xu')).toBe(0);
+    expect(total('caroline ng')).toBe(1);
+    service.changeSalary(carol.id, { newSalary: 75_000, effectiveDate: '2024-01-01', reason: 'Review' });
+    expect(total('caroline')).toBe(1);
+    service.remove(carol.id);
+    expect(total('caroline')).toBe(0);
+  });
+
   it('sorts by USD-equivalent salary across currencies', () => {
     const { service } = seedFew();
     // US 150k USD > GB 70k GBP (~88.6k USD) > IN 3M INR (~35.9k USD)

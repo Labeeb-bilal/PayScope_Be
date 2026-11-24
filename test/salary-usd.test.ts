@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { openDb, recomputeSalaryUsd, type DB } from '../src/db/connection';
 import { seedDatabase } from '../src/db/seed';
 import { listQuerySchema } from '../src/schemas';
+import { createEmployeeService } from '../src/services/employee-service';
 import { employeeInput, setup } from './helpers';
 
 const IN_RATE = 83.5;
@@ -108,7 +109,7 @@ describe('salary_usd cache', () => {
   });
 });
 
-describe('migration from a pre-salary_usd database file', () => {
+describe('migration from a pre-salary_usd, pre-FTS database file', () => {
   it('adds the column, backfills it and keeps all data', () => {
     const file = tempDbPath();
     const old = new Database(file);
@@ -124,6 +125,7 @@ describe('migration from a pre-salary_usd database file', () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT, employee_id INTEGER NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
         previous_salary INTEGER, new_salary INTEGER NOT NULL, currency TEXT NOT NULL, effective_date TEXT NOT NULL,
         reason TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));
+      CREATE INDEX idx_employees_first_name ON employees(first_name);
       INSERT INTO countries VALUES ('US', 'United States', 'USD', 1), ('IN', 'India', 'INR', 83.5);
       INSERT INTO employees (employee_code, first_name, last_name, email, job_title, level, department, country_code, salary, currency, hire_date)
       VALUES ('ACME-00001', 'Old', 'Timer', 'old@acme.example', 'Software Engineer', 'L3', 'Engineering', 'IN', 3000000, 'INR', '2019-01-01'),
@@ -142,6 +144,12 @@ describe('migration from a pre-salary_usd database file', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM salary_changes').get() as { n: number }).n).toBe(1);
     const indexes = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'index'").all() as { name: string }[]).map((r) => r.name);
     expect(indexes).toContain('idx_employees_salary_usd');
+    expect(indexes).toContain('idx_employees_name');
+    expect(indexes).not.toContain('idx_employees_first_name');
+    // The full-text index is backfilled from the existing rows.
+    const service = createEmployeeService(db);
+    expect(service.list(listQuerySchema.parse({ search: 'old timer' })).items.map((e) => e.employeeCode)).toEqual(['ACME-00001']);
+    expect(service.list(listQuerySchema.parse({ search: 'also@acme' })).total).toBe(1);
     db.close();
 
     // Re-opening an already migrated file is a no-op.

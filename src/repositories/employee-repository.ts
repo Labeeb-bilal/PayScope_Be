@@ -49,18 +49,30 @@ const SORT_SQL: Record<ListQuery['sort'], string> = {
   employeeCode: 'e.employee_code {dir}',
 };
 
-function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, (m) => `\\${m}`);
+/**
+ * Turns free text into a safe FTS5 query: every whitespace-separated token becomes a quoted
+ * prefix phrase ("carol"* AND "x"*), so FTS5 operators and punctuation in user input are never
+ * interpreted. Inside quotes FTS5 applies the same tokenizer as the index, so "test.person" becomes
+ * the phrase `test person*`. Tokens without any letter or digit (e.g. "%", "-", "(") are dropped.
+ * Returns null when nothing searchable is left.
+ */
+export function toFtsQuery(input: string): string | null {
+  const tokens = input.split(/\s+/).filter((t) => /[\p{L}\p{N}]/u.test(t));
+  if (tokens.length === 0) return null;
+  return tokens.map((t) => `"${t.replaceAll('"', '""')}"*`).join(' AND ');
 }
 
 function buildWhere(filters: ListFilters): { sql: string; params: Record<string, unknown> } {
   const clauses: string[] = [];
   const params: Record<string, unknown> = {};
   if (filters.search) {
-    params.search = `${escapeLike(filters.search)}%`;
-    clauses.push(`(e.first_name LIKE @search ESCAPE '\\' OR e.last_name LIKE @search ESCAPE '\\'
-      OR e.email LIKE @search ESCAPE '\\' OR e.employee_code LIKE @search ESCAPE '\\'
-      OR (e.first_name || ' ' || e.last_name) LIKE @search ESCAPE '\\')`);
+    const match = toFtsQuery(filters.search);
+    if (match === null) {
+      clauses.push('0'); // only punctuation: nothing can match
+    } else {
+      params.search = match;
+      clauses.push('e.id IN (SELECT rowid FROM employees_fts WHERE employees_fts MATCH @search)');
+    }
   }
   if (filters.country) {
     clauses.push('e.country_code = @country');

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { openDb } from '../src/db/connection';
+import { openDb, withoutSearchTriggers } from '../src/db/connection';
+import { listQuerySchema } from '../src/schemas';
+import { createEmployeeService } from '../src/services/employee-service';
+import { employeeInput } from './helpers';
 import { createRng, generateEmployees, roundSalary, seedDatabase } from '../src/db/seed';
 import { COUNTRIES, DEPARTMENTS, LEVELS } from '../src/db/reference-data';
 
@@ -92,5 +95,35 @@ describe('seedDatabase', () => {
     const start = Date.now();
     expect(seedDatabase(db, 10_000)).toBe(10_000);
     expect(Date.now() - start).toBeLessThan(5000);
+  });
+});
+
+describe('seedDatabase and the full-text index', () => {
+  const ftsIntegrityCheck = (db: ReturnType<typeof openDb>) =>
+    db.prepare("INSERT INTO employees_fts (employees_fts, rank) VALUES ('integrity-check', 1)").run();
+
+  it('leaves the search index consistent with the table, also when re-seeding', () => {
+    const db = openDb(':memory:');
+    seedDatabase(db, 300);
+    seedDatabase(db, 200, 7);
+    expect(() => ftsIntegrityCheck(db)).not.toThrow();
+    const { n } = db.prepare("SELECT COUNT(*) AS n FROM employees_fts WHERE employees_fts MATCH 'acme*'").get() as { n: number };
+    expect(n).toBe(200);
+  });
+
+  it('restores the sync triggers after a bulk load', () => {
+    const db = openDb(':memory:');
+    seedDatabase(db, 50);
+    const triggers = db.prepare("SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'trigger'").get() as { n: number };
+    expect(triggers.n).toBe(3);
+    const service = createEmployeeService(db);
+    service.create(employeeInput({ firstName: 'Zebedee' }));
+    expect(service.list(listQuerySchema.parse({ search: 'zebedee' })).total).toBe(1);
+    expect(() => ftsIntegrityCheck(db)).not.toThrow();
+  });
+
+  it('refuses to drop the triggers outside a transaction', () => {
+    const db = openDb(':memory:');
+    expect(() => withoutSearchTriggers(db, () => {})).toThrow(/inside a transaction/);
   });
 });

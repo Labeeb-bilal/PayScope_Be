@@ -1,4 +1,4 @@
-import { salaryUsdSql, type DB } from './connection';
+import { salaryUsdSql, withoutSearchTriggers, type DB } from './connection';
 import { COUNTRIES, DEPARTMENTS, LEVELS, type Level } from './reference-data';
 
 /** Small, fast, deterministic PRNG (mulberry32). Same seed → same data everywhere. */
@@ -153,7 +153,7 @@ export function seedDatabase(db: DB, count = 10_000, seed = 42): number {
     INSERT INTO salary_changes (employee_id, previous_salary, new_salary, currency, effective_date, reason)
     VALUES (?, ?, ?, ?, ?, ?)`);
 
-  db.transaction(() => {
+  db.transaction(() => withoutSearchTriggers(db, () => {
     db.exec('DELETE FROM salary_changes; DELETE FROM employees; DELETE FROM sqlite_sequence;');
     for (const e of employees) {
       const { lastInsertRowid } = insertEmployee.run(e);
@@ -165,6 +165,6 @@ export function seedDatabase(db: DB, count = 10_000, seed = 42): number {
         insertChange.run(id, null, e.salary, e.currency, e.hireDate, 'Initial salary');
       }
     }
-  })();
+  }))();
   return employees.length;
 }
