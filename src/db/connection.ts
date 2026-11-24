@@ -53,6 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_employees_peer       ON employees(job_title, leve
 CREATE INDEX IF NOT EXISTS idx_employees_name       ON employees(last_name, first_name);
 CREATE INDEX IF NOT EXISTS idx_employees_first_name ON employees(first_name);
 CREATE INDEX IF NOT EXISTS idx_employees_salary_usd ON employees(salary_usd);
+CREATE INDEX IF NOT EXISTS idx_employees_country_salary ON employees(country_code, salary);
 
 CREATE INDEX IF NOT EXISTS idx_salary_changes_employee ON salary_changes(employee_id, effective_date);
 `;

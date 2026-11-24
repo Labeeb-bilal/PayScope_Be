@@ -137,4 +137,24 @@ describe('EmployeeService.list', () => {
     const names = service.list(query({ sort: 'salaryUsd', order: 'desc' })).items.map((e) => e.firstName);
     expect(names).toEqual(['Alice', 'Carol', 'Bob']);
   });
+
+  it('sorts by salary within a country filter (asc and desc, ties broken by id)', () => {
+    const { service } = setup();
+    const mk = (firstName: string, salary: number, countryCode = 'IN') =>
+      service.create(employeeInput({ firstName, countryCode, salary }));
+    mk('Mid', 2_000_000);
+    mk('High', 4_000_000);
+    mk('Low', 900_000);
+    mk('MidToo', 2_000_000);
+    mk('Outsider', 9_000_000, 'US'); // excluded by the filter
+
+    const names = (order: 'asc' | 'desc') =>
+      service.list(query({ country: 'IN', sort: 'salaryUsd', order })).items.map((e) => e.firstName);
+    expect(names('desc')).toEqual(['High', 'MidToo', 'Mid', 'Low']);
+    expect(names('asc')).toEqual(['Low', 'Mid', 'MidToo', 'High']);
+
+    const paged = service.list(query({ country: 'IN', sort: 'salaryUsd', order: 'desc', pageSize: 2, page: 2 }));
+    expect(paged.items.map((e) => e.firstName)).toEqual(['Mid', 'Low']);
+    expect(paged.total).toBe(4);
+  });
 });

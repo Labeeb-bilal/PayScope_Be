@@ -100,7 +100,10 @@ export function createEmployeeRepository(db: DB) {
     list(query: ListQuery): { items: EmployeeRow[]; total: number } {
       const { sql: where, params } = buildWhere(query);
       const dir = query.order === 'desc' ? 'DESC' : 'ASC';
-      const orderBy = `${SORT_SQL[query.sort].replaceAll('{dir}', dir)}, e.id ${dir}`;
+      // Within one country every salary is in the same currency, so local salary orders exactly like USD
+      // and idx_employees_country_salary can return rows pre-sorted (no conversion, no temp B-tree).
+      const sortSql = query.sort === 'salaryUsd' && query.country ? 'e.salary {dir}' : SORT_SQL[query.sort];
+      const orderBy = `${sortSql.replaceAll('{dir}', dir)}, e.id ${dir}`;
       const total = (db.prepare(`SELECT COUNT(*) AS n FROM employees e ${where}`).get(params) as { n: number }).n;
       const items = db
         .prepare(`${SELECT_EMPLOYEE} ${where} ORDER BY ${orderBy} LIMIT @limit OFFSET @offset`)
