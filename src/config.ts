@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { parseCorsOrigins } from './lib/cors';
 
 export const config = {
   port: Number(process.env.PORT ?? 4000),
@@ -7,4 +8,5 @@ export const config = {
   staticDir: process.env.STATIC_DIR ?? path.resolve(__dirname, '../../frontend/out'),
   /** Seed automatically when the database is empty (useful on ephemeral hosting). */
   seedIfEmpty: process.env.SEED_IF_EMPTY !== 'false',
+  corsOrigins: parseCorsOrigins(),
 };

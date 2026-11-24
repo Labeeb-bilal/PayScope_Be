@@ -1,10 +1,10 @@
-import cors from 'cors';
 import express, { type ErrorRequestHandler } from 'express';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ZodError } from 'zod';
 import type { DB } from './db/connection';
 import { LEVEL_LABELS, LEVELS } from './db/reference-data';
+import { corsMiddleware, type CorsOrigins } from './lib/cors';
 import { AppError } from './lib/errors';
 import type { LlmClient } from './lib/llm-client';
 import type { RateLimitOptions } from './lib/rate-limit';
@@ -19,6 +19,8 @@ import { createInsightsService } from './services/insights-service';
 export interface AppOptions {
   /** Built frontend to serve at '/'. Omitted in tests and in dev (Next dev server runs separately). */
   staticDir?: string;
+  /** Browser origins allowed to call the API cross-origin (from CORS_ORIGIN, see parseCorsOrigins). Default: none (same-origin only). */
+  corsOrigins?: CorsOrigins;
   /** LLM for the HR assistant. Omitted or null: the assistant is disabled and the rest of the app is unaffected. */
   llm?: LlmClient | null;
   /** Rate limit for POST /api/assistant/chat (default 20 per minute per IP). */
@@ -28,7 +30,9 @@ export interface AppOptions {
 export function createApp(db: DB, options: AppOptions = {}) {
   const app = express();
   app.disable('x-powered-by');
-  app.use(cors()); // dev only matters: in production UI and API share an origin
+  // Only listed sites get CORS headers; browsers block cross-origin calls from anywhere else.
+  // Same-origin requests (UI served by this API) and non-browser clients are unaffected by CORS.
+  app.use(corsMiddleware(options.corsOrigins ?? []));
   app.use(express.json({ limit: '100kb' }));
 
   const reference = createReferenceRepository(db);
