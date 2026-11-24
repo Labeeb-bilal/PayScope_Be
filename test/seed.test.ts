@@ -3,7 +3,8 @@ import { openDb, withoutSearchTriggers } from '../src/db/connection';
 import { listQuerySchema } from '../src/schemas';
 import { createEmployeeService } from '../src/services/employee-service';
 import { employeeInput } from './helpers';
-import { createRng, generateEmployees, roundSalary, seedDatabase } from '../src/db/seed';
+import { createRng, generateEmployees, NAMES_BY_COUNTRY, roundSalary, seedDatabase } from '../src/db/seed';
+import { createEmployeeSchema } from '../src/schemas';
 import { COUNTRIES, DEPARTMENTS, LEVELS } from '../src/db/reference-data';
 
 describe('createRng', () => {
@@ -54,6 +55,23 @@ describe('generateEmployees', () => {
       expect(LEVELS).toContain(e.level);
       expect(Number.isInteger(e.salary) && e.salary > 0).toBe(true);
       expect(e.hireDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+
+  it('gives each person a first name and surname from their country\'s naming culture', () => {
+    for (const c of COUNTRIES) expect(NAMES_BY_COUNTRY[c.code], c.code).toBeDefined();
+    for (const e of generateEmployees(2000)) {
+      const pool = NAMES_BY_COUNTRY[e.countryCode]!;
+      expect(pool.first).toContain(e.firstName);
+      expect(pool.last).toContain(e.lastName);
+    }
+  });
+
+  it('builds emails that pass the API\'s own validation', () => {
+    const email = createEmployeeSchema.shape.email;
+    for (const e of generateEmployees(2000)) {
+      expect(email.safeParse(e.email).success, e.email).toBe(true);
+      expect(e.email).toMatch(/^[a-z0-9]+(\.[a-z0-9]+)*@acme\.example$/);
     }
   });
 

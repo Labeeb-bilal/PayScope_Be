@@ -27,20 +27,121 @@ function weighted<T>(rng: () => number, entries: readonly (readonly [T, number])
   return entries[entries.length - 1]![0];
 }
 
-const FIRST_NAMES = [
-  'Aarav', 'Aisha', 'Akira', 'Alex', 'Amelia', 'Ana', 'Arjun', 'Ava', 'Ben', 'Camila', 'Chloe', 'Daniel',
-  'David', 'Diya', 'Elena', 'Emma', 'Ethan', 'Fatima', 'Felix', 'Gabriel', 'Hana', 'Hannah', 'Isabella', 'Ishaan',
-  'James', 'Jia', 'Julia', 'Kabir', 'Kenji', 'Laila', 'Leo', 'Liam', 'Lucas', 'Maya', 'Mei', 'Mia',
-  'Mohammed', 'Noah', 'Olivia', 'Omar', 'Priya', 'Rahul', 'Rohan', 'Sakura', 'Samuel', 'Sara', 'Sofia', 'Thomas',
-  'Wei', 'Yusuf', 'Zara', 'Zoe', 'Ananya', 'Carlos', 'Hiro', 'Layla', 'Lena', 'Marco', 'Nina', 'Ravi',
-];
+/**
+ * Name pools per culture, so a seeded person gets a first name and surname that belong together
+ * (no "Kenji Patel"). Names are plain ASCII where the culture allows it; emails are ASCII-folded anyway.
+ */
+interface NamePool {
+  first: readonly string[];
+  last: readonly string[];
+}
 
-const LAST_NAMES = [
-  'Ahmed', 'Ali', 'Anderson', 'Brown', 'Chen', 'Costa', 'Das', 'Davis', 'Fernandes', 'Fischer', 'Garcia', 'Gupta',
-  'Hassan', 'Ito', 'Iyer', 'Johnson', 'Khan', 'Kim', 'Kumar', 'Lee', 'Lopez', 'Martin', 'Meyer', 'Miller',
-  'Nair', 'Nakamura', 'Nguyen', 'Patel', 'Reddy', 'Rodriguez', 'Rossi', 'Santos', 'Schmidt', 'Shah', 'Silva', 'Singh',
-  'Smith', 'Suzuki', 'Tanaka', 'Taylor', 'Thomas', 'Wagner', 'Walker', 'Wang', 'Williams', 'Wilson', 'Wong', 'Zhang',
-];
+const ENGLISH: NamePool = {
+  first: [
+    'James', 'Oliver', 'William', 'Harry', 'George', 'Thomas', 'Jack', 'Daniel', 'Matthew', 'Samuel', 'Benjamin', 'Henry',
+    'Michael', 'David', 'Andrew', 'Christopher', 'Emily', 'Olivia', 'Charlotte', 'Amelia', 'Sophie', 'Grace', 'Hannah',
+    'Jessica', 'Emma', 'Lucy', 'Sarah', 'Rebecca', 'Elizabeth', 'Katherine', 'Laura', 'Megan',
+  ],
+  last: [
+    'Smith', 'Johnson', 'Williams', 'Brown', 'Jones', 'Taylor', 'Wilson', 'Davies', 'Evans', 'Thomas', 'Roberts', 'Walker',
+    'Wright', 'Robinson', 'Thompson', 'White', 'Hughes', 'Edwards', 'Green', 'Hall', 'Wood', 'Harris', 'Clarke', 'Jackson',
+    'Turner', 'Hill', 'Cooper', 'Ward', 'Morris', 'Baker', 'Mitchell', 'Campbell',
+  ],
+};
+
+const INDIAN: NamePool = {
+  first: [
+    'Aarav', 'Arjun', 'Rohan', 'Rahul', 'Vikram', 'Aditya', 'Karan', 'Ishaan', 'Kabir', 'Siddharth', 'Amit', 'Rajesh',
+    'Sanjay', 'Vivek', 'Ankit', 'Nikhil', 'Priya', 'Ananya', 'Diya', 'Kavya', 'Pooja', 'Neha', 'Sneha', 'Aishwarya',
+    'Riya', 'Shreya', 'Meera', 'Divya', 'Anjali', 'Sunita', 'Kiran', 'Nisha',
+  ],
+  last: [
+    'Sharma', 'Verma', 'Gupta', 'Singh', 'Kumar', 'Patel', 'Mehta', 'Joshi', 'Agarwal', 'Chauhan', 'Yadav', 'Mishra',
+    'Pandey', 'Tiwari', 'Srivastava', 'Saxena', 'Malhotra', 'Kapoor', 'Chopra', 'Bhatia', 'Iyer', 'Nair', 'Reddy', 'Rao',
+    'Menon', 'Desai', 'Shah', 'Banerjee', 'Chatterjee', 'Das', 'Kulkarni', 'Jain',
+  ],
+};
+
+const GERMAN: NamePool = {
+  first: [
+    'Lukas', 'Leon', 'Felix', 'Jonas', 'Maximilian', 'Paul', 'Finn', 'Niklas', 'Tobias', 'Florian', 'Stefan', 'Matthias',
+    'Jan', 'Moritz', 'Sebastian', 'Markus', 'Anna', 'Lena', 'Laura', 'Lea', 'Hannah', 'Sophie', 'Julia', 'Katharina',
+    'Johanna', 'Clara', 'Marie', 'Sarah', 'Lisa', 'Miriam', 'Franziska', 'Sabine',
+  ],
+  last: [
+    'Mueller', 'Schmidt', 'Schneider', 'Fischer', 'Weber', 'Meyer', 'Wagner', 'Becker', 'Schulz', 'Hoffmann', 'Koch',
+    'Richter', 'Klein', 'Wolf', 'Schroeder', 'Neumann', 'Schwarz', 'Zimmermann', 'Braun', 'Krueger', 'Hofmann', 'Hartmann',
+    'Lange', 'Schmitt', 'Werner', 'Krause', 'Meier', 'Lehmann', 'Huber', 'Kaiser',
+  ],
+};
+
+const JAPANESE: NamePool = {
+  first: [
+    'Haruto', 'Yuto', 'Sota', 'Riku', 'Kaito', 'Takumi', 'Kenji', 'Hiroshi', 'Daiki', 'Ren', 'Shota', 'Kenta', 'Takeshi',
+    'Ryota', 'Yui', 'Hina', 'Sakura', 'Aoi', 'Yuna', 'Mei', 'Haruka', 'Misaki', 'Nanami', 'Yuki', 'Ayaka', 'Rin', 'Emi',
+    'Naoko', 'Keiko', 'Mio',
+  ],
+  last: [
+    'Sato', 'Suzuki', 'Takahashi', 'Tanaka', 'Watanabe', 'Ito', 'Yamamoto', 'Nakamura', 'Kobayashi', 'Kato', 'Yoshida',
+    'Yamada', 'Sasaki', 'Yamaguchi', 'Matsumoto', 'Inoue', 'Kimura', 'Hayashi', 'Shimizu', 'Yamazaki', 'Mori', 'Ikeda',
+    'Hashimoto', 'Abe', 'Ishikawa', 'Ogawa', 'Fujita', 'Okada', 'Goto', 'Hasegawa',
+  ],
+};
+
+const BRAZILIAN: NamePool = {
+  first: [
+    'Joao', 'Pedro', 'Lucas', 'Gabriel', 'Matheus', 'Rafael', 'Gustavo', 'Felipe', 'Bruno', 'Thiago', 'Rodrigo', 'Diego',
+    'Leonardo', 'Eduardo', 'Ricardo', 'Marcelo', 'Ana', 'Maria', 'Beatriz', 'Juliana', 'Camila', 'Larissa', 'Fernanda',
+    'Mariana', 'Leticia', 'Gabriela', 'Amanda', 'Carolina', 'Patricia', 'Isabela', 'Luiza', 'Bianca',
+  ],
+  last: [
+    'Silva', 'Santos', 'Oliveira', 'Souza', 'Rodrigues', 'Ferreira', 'Alves', 'Pereira', 'Lima', 'Gomes', 'Costa',
+    'Ribeiro', 'Martins', 'Carvalho', 'Almeida', 'Lopes', 'Soares', 'Fernandes', 'Vieira', 'Barbosa', 'Rocha', 'Dias',
+    'Nascimento', 'Andrade', 'Moreira', 'Nunes', 'Marques', 'Machado', 'Mendes', 'Freitas',
+  ],
+};
+
+const ARABIC: NamePool = {
+  first: [
+    'Mohammed', 'Ahmed', 'Omar', 'Khalid', 'Yousef', 'Hamad', 'Saeed', 'Abdullah', 'Rashid', 'Faisal', 'Hassan', 'Ali',
+    'Tariq', 'Majid', 'Sultan', 'Ibrahim', 'Fatima', 'Aisha', 'Mariam', 'Noura', 'Layla', 'Sara', 'Hessa', 'Amna', 'Reem',
+    'Shamma', 'Latifa', 'Maitha', 'Huda', 'Salma', 'Dana', 'Lina',
+  ],
+  last: [
+    'Al-Mansoori', 'Al-Nuaimi', 'Al-Hashimi', 'Al-Mazrouei', 'Al-Shamsi', 'Al-Dhaheri', 'Al-Suwaidi', 'Al-Ketbi',
+    'Al-Falasi', 'Al-Marri', 'Al-Zaabi', 'Al-Qasimi', 'Al-Hammadi', 'Al-Kaabi', 'Al-Muhairi', 'Al-Romaithi', 'Al-Blooshi',
+    'Al-Ali', 'Haddad', 'Khoury', 'Nasser', 'Saleh', 'Mansour', 'Aziz', 'Rahman', 'Hamdan', 'Karim', 'Yousef',
+  ],
+};
+
+const SINGAPOREAN: NamePool = {
+  first: [
+    'Wei Ming', 'Jun Hao', 'Zhi Hao', 'Jia Hui', 'Xin Yi', 'Hui Min', 'Li Ting', 'Kai Wen', 'Jun Jie', 'Wen Xuan', 'Shu Fen',
+    'Mei Ling', 'Darren', 'Marcus', 'Ryan', 'Bryan', 'Gavin', 'Jasmine', 'Rachel', 'Cheryl', 'Felicia', 'Vanessa', 'Natalie',
+    'Joanne', 'Elaine', 'Clement',
+  ],
+  last: [
+    'Tan', 'Lim', 'Lee', 'Ng', 'Ong', 'Wong', 'Goh', 'Chua', 'Chan', 'Koh', 'Teo', 'Ang', 'Yeo', 'Tay', 'Ho', 'Low', 'Toh',
+    'Sim', 'Chong', 'Chia', 'Seah', 'Foo', 'Leong', 'Quek', 'Heng', 'Pang',
+  ],
+};
+
+/** Which naming culture each country's employees are drawn from. */
+export const NAMES_BY_COUNTRY: Record<string, NamePool> = {
+  US: ENGLISH, GB: ENGLISH, CA: ENGLISH, AU: ENGLISH,
+  IN: INDIAN, DE: GERMAN, JP: JAPANESE, BR: BRAZILIAN, AE: ARABIC, SG: SINGAPOREAN,
+};
+
+/** "Wei Ming" + "Tan" + 42 -> "wei.ming.tan.42": lowercase ASCII letters/digits separated by dots. */
+function emailLocalPart(firstName: string, lastName: string, n: number): string {
+  return `${firstName} ${lastName} ${n}`
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .join('.');
+}
 
 /** Headcount weight and pay level relative to the US market. */
 const COUNTRY_PROFILE: Record<string, { weight: number; marketFactor: number }> = {
@@ -109,8 +210,9 @@ export function generateEmployees(count: number, seed = 42): SeedEmployee[] {
     const titles = DEPARTMENTS[department]!;
     const jobTitle = pick(rng, Object.keys(titles));
     const level = weighted(rng, levelEntries);
-    const firstName = pick(rng, FIRST_NAMES);
-    const lastName = pick(rng, LAST_NAMES);
+    const names = NAMES_BY_COUNTRY[country.code]!;
+    const firstName = pick(rng, names.first);
+    const lastName = pick(rng, names.last);
 
     const usdBase = titles[jobTitle]! * LEVEL_MULTIPLIER[level] * COUNTRY_PROFILE[country.code]!.marketFactor;
     const noise = 0.85 + rng() * 0.3; // ±15% spread within a peer group
@@ -126,7 +228,7 @@ export function generateEmployees(count: number, seed = 42): SeedEmployee[] {
       employeeCode: `ACME-${String(i).padStart(5, '0')}`,
       firstName,
       lastName,
-      email: `${firstName}.${lastName}.${i}@acme.example`.toLowerCase(),
+      email: `${emailLocalPart(firstName, lastName, i)}@acme.example`,
       jobTitle,
       level,
       department,
