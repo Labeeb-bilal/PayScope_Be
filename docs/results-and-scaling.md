@@ -24,7 +24,7 @@ Tech: Node.js, Express, TypeScript, SQLite, Next.js, Mantine, Vitest.
 
 The frontend calls one API. The API owns the database and is the only part that talks to the LLM.
 
-![System architecture](images/architecture.png)
+![System architecture](/architecture.png)
 
 Database tables:
 
@@ -37,7 +37,7 @@ Database tables:
 
 How the AI assistant answers a question:
 
-![How the AI assistant answers a question](images/ai-assistant-flow.png)
+![How the AI assistant answers a question](/ai-assistant-flow.png)
 
 Each layer has one job. Routes only handle HTTP, services hold the rules, and repositories hold the SQL. This keeps the code easy to test. Tests run against a fresh in-memory database, so they are fast and give the same result every time.
 
