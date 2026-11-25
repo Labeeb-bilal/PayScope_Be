@@ -31,7 +31,7 @@ REST API for an HR manager to manage salaries for 10,000 employees across 10 cou
 
 ## Architecture
 
-![System architecture](docs/images/architecture.png)
+![System architecture](docs/architecture.png)
 
 ```
 src/
